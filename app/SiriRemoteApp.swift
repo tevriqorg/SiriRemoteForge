@@ -1652,18 +1652,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { monitor.show() }
         }
 
-        // Radial app launcher. Modal while open: the handler routes every button here, Select
-        // launching what is highlighted and anything else cancelling.
-        let wheel = AppWheelController()
-        appWheel = wheel
-        wheel.configure(apps: config.settings.appWheel)
-        actionExecutor.onAppWheel = { [weak wheel] in
-            guard let wheel = wheel else { return }
+        // Radial app launcher is created only on first summon. Empty/unused configurations now
+        // keep both the controller and its observable model out of the steady-state process.
+        actionExecutor.onAppWheel = { [weak self] in
+            guard let self else { return }
+            let apps = self.settingsModel?.config?.settings.appWheel ?? []
+            let wheel = self.ensureAppWheel(apps: apps)
             wheel.open()
             RemoteInputHandler.isAppWheelOpen = wheel.isOpen
         }
-        remoteInputHandler?.onAppWheelButton = { [weak wheel] button in
-            guard let wheel = wheel else { return }
+        remoteInputHandler?.onAppWheelButton = { [weak self] button in
+            guard let wheel = self?.appWheel else { return }
             if button == "select" { wheel.commit() } else { wheel.cancel() }
             RemoteInputHandler.isAppWheelOpen = wheel.isOpen
         }
@@ -2026,6 +2025,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func checkForUpdatesManually() {
         guard let updates = ensureUpdateManager() else { return }
         updates.checkForUpdates()
+    }
+
+    private func ensureAppWheel(apps: [String]) -> AppWheelController {
+        if let appWheel {
+            appWheel.configure(apps: apps)
+            return appWheel
+        }
+        let wheel = AppWheelController()
+        wheel.configure(apps: apps)
+        appWheel = wheel
+        rmDebug("🪶 App Wheel controller created on demand")
+        return wheel
     }
 
     private func ensureDemoModeWindow() -> DemoModeWindowController {
