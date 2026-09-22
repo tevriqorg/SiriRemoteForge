@@ -88,6 +88,21 @@ belong in `docs/mic-reverse-engineering.md`.
   deconfigures it live where supported, but a relaunch is what releases the launch-created objects.
   If Native Voice, Status Widget, Hold HUD, or Voice Pipeline HUD was absent at launch, enabling it
   requires a relaunch. Settings footers now state this explicitly.
+- Additional launch/on-demand gating in the same phase:
+  - automatic update checks OFF at launch → no `UpdateManager` / Sparkle updater controller is
+    constructed. A manual check or later enabling automatic checks creates it on demand. Disabling
+    checks live disables scheduling; restart drops the object. Sparkle is still linked into the
+    monolithic App binary, so eliminating framework load itself belongs to a later target split.
+  - Demo Remote OFF at launch → no `DemoModeWindowController`, therefore no screen/active-Space
+    observers from that controller. Enabling it or using `--demo-mode` creates/wires it on demand.
+  - App Wheel no longer creates its controller/model at ordinary launch. The first actual
+    `.appWheel` action creates/configures it; its NSWindow remains lazy inside the controller.
+  - `SettingsWindowController` was inspected but does not need the same treatment: its initializer
+    only stores `SettingsModel`; the SwiftUI `NSHostingController` and window are already created
+    lazily on first `show()`.
+  - `LayerHUD`, `DragIndicator`, `CursorHighlighter`, and `FocusFollowsCursor` were also
+    inspected. Their expensive windows/layers/timers are already lazy or start only when enabled,
+    so phase 1 avoids churn that would not materially reduce steady-state memory.
 - Goal of this phase: make “turn unused feature off, then restart” materially reduce the resident
   runtime before attempting larger decomposition of `SiriRemoteApp.swift` / `RemoteInputHandler.swift`.
 
