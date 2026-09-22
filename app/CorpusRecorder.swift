@@ -22,6 +22,7 @@ final class VoiceCorpusRecorder {
         let shortcutKeys: String
         let applicationName: String?
         let bundleIdentifier: String?
+        let applicationPID: pid_t?
         let clipboardBaselineChangeCount: Int
         let capture: VoiceAudioCaptureSession
         var textTarget: VoiceTextTarget?
@@ -30,7 +31,7 @@ final class VoiceCorpusRecorder {
 
         init(id: UUID, startedAt: Date, directoryURL: URL,
              actionKey: String, actionKind: String, shortcutKeys: String,
-             applicationName: String?, bundleIdentifier: String?,
+             applicationName: String?, bundleIdentifier: String?, applicationPID: pid_t?,
              clipboardBaselineChangeCount: Int, capture: VoiceAudioCaptureSession) {
             self.id = id
             self.startedAt = startedAt
@@ -40,6 +41,7 @@ final class VoiceCorpusRecorder {
             self.shortcutKeys = shortcutKeys
             self.applicationName = applicationName
             self.bundleIdentifier = bundleIdentifier
+            self.applicationPID = applicationPID
             self.clipboardBaselineChangeCount = clipboardBaselineChangeCount
             self.capture = capture
         }
@@ -155,6 +157,7 @@ final class VoiceCorpusRecorder {
             shortcutKeys: action.keys,
             applicationName: app?.localizedName,
             bundleIdentifier: app?.bundleIdentifier,
+            applicationPID: app?.processIdentifier,
             clipboardBaselineChangeCount: pasteboard.changeCount,
             capture: capture
         )
@@ -270,12 +273,14 @@ final class VoiceCorpusRecorder {
     private func watchClipboard(for session: Session, generation: Int, attempt: Int) {
         guard generation == clipboardWatchGeneration else { return }
 
-        if !session.clipboardCaptured {
+        if !session.clipboardCaptured,
+           !IsSecureEventInputEnabled(),
+           NSWorkspace.shared.frontmostApplication?.processIdentifier == session.applicationPID {
             let pasteboard = NSPasteboard.general
             if pasteboard.changeCount != session.clipboardBaselineChangeCount,
                let text = pasteboard.string(forType: .string)?
                     .trimmingCharacters(in: .whitespacesAndNewlines),
-               !text.isEmpty {
+               !text.isEmpty, text.count <= 100_000 {
                 session.clipboardCaptured = true
                 let observation = IMEObservation(
                     version: 1,
@@ -295,6 +300,7 @@ final class VoiceCorpusRecorder {
         // the 100 ms clipboard poll into repeated cross-process IPC. We only persist the minimal
         // changed span, never the before/after field values.
         if !session.accessibilityCaptured,
+           !IsSecureEventInputEnabled(),
            [2, 5, 10, 20].contains(attempt),
            let target = session.textTarget,
            let before = target.valueBeforeInsertion,
