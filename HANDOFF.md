@@ -37,6 +37,36 @@ belong in `docs/mic-reverse-engineering.md`.
 - Current branch: `main`. Use `git rev-parse HEAD` for the exact current commit; this living document
   no longer pins a SHA that becomes stale after every deployment note.
 
+### ⚡ LATEST — 2026-09-22: external Voice Corpus capture (phase 2, branch only)
+
+- The same working branch now adds an optional **Voice Corpus** recorder for the user's external
+  side-button workflow. It is deliberately independent from Native Voice/cloud transcription and is
+  **off by default** because enabling it persistently stores microphone audio and observed IME text.
+- New setting: `settings.corpusCaptureEnabled`, exposed in Settings → Voice as **Record external
+  voice corpus**. It can be toggled live and is persisted in `config.jsonc`.
+- Scope is intentionally narrow: only a promoted continuous `button.siri` action whose resolved
+  action is `holdKeystroke` or `pushToTalk` is recorded. Quick taps never create a sample because
+  recording begins from the existing `onContinuousActionBegan` callback, after the 0.2 s promotion
+  guard. The live `holdKeystroke(f10)` external-WeChat route itself is unchanged.
+- While a corpus sample is active, the App raises the existing `BuiltinMicFeeder.setVoiceMetering`
+  demand so the privileged remote-audio path can wake even though the hold never enters
+  `VoiceDictationCoordinator`. `VoiceAudioCaptureSession` then selects the live Siri Remote ring
+  when available and otherwise records the pinned built-in-mic ring, recording the chosen source in
+  metadata.
+- Samples are append-oriented under
+  `~/Library/Application Support/HyperVibe/Corpus/YYYY-MM-DD/<time-id>/`:
+  - `audio.wav` — mono PCM16 at the existing Voice capture sample rate;
+  - `capture.json` — immutable capture facts (id/times/app/action/audio source/rate/frames/duration);
+  - `ime.json` — written separately only when the general pasteboard changes after this utterance,
+    containing the observed text and attribution source. The pre-existing clipboard text is never
+    persisted.
+- Clipboard association is deliberately labelled best-effort. The recorder polls for up to 2 s
+  after release and cancels an older pending watch when a new utterance begins, preventing the next
+  utterance's clipboard change from being attached to the previous sample. Accessibility-based text
+  differencing is a later phase if the external IME proves not to publish reliable clipboard text.
+- Corpus files are mode 0600, sample directories are 0700, and the corpus root is excluded from
+  automatic backup to avoid silently pushing a growing private audio dataset into cloud backup.
+
 ### ⚡ LATEST — 2026-09-22: disabled heavy subsystems are launch-gated (phase 1)
 
 - Working branch: `chatgpt/lazy-disabled-subsystems-20260922`. This is deliberately a low-risk
