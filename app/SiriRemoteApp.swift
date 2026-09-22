@@ -1326,50 +1326,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.scheduleTunePersist()   // write slider values back into config.jsonc (debounced)
         }
         model.config = config   // publish the live config to the Settings "Layout" tab
-        let updates = UpdateManager()
-        updateManager = updates
-        model.onCheckForUpdates = { [weak updates] in updates?.checkForUpdates() }
-        updates.onUpdateAvailable = { [weak model, weak menuBar = menuBarManager] version in
-            model?.availableUpdateVersion = version
-            menuBar?.setAvailableUpdate(version: version)
-        }
-        updates.onUpdateCleared = { [weak model, weak menuBar = menuBarManager] in
-            model?.availableUpdateVersion = nil
-            menuBar?.setAvailableUpdate(version: nil)
-        }
-        // Install every callback before starting: a cached/local feed can complete on the next
-        // run-loop turn, and the very first gentle reminder must not race past the UI observers.
-        updates.start(
-            automaticChecks: model.tune.automaticUpdateChecksEnabled,
-            automaticDownloads: model.tune.automaticallyDownloadUpdatesEnabled
-        )
         settingsModel = model
+
+        // Sparkle is optional runtime infrastructure. Automatic checks disabled at launch means no
+        // UpdateManager/SPU controller is created at all; a manual check or enabling automatic
+        // checks later creates it on demand.
+        model.onCheckForUpdates = { [weak self] in self?.checkForUpdatesManually() }
+        if model.tune.automaticUpdateChecksEnabled {
+            _ = ensureUpdateManager()
+        } else {
+            print("🪶 Automatic updates disabled at launch — Sparkle controller not created")
+        }
+
         let settingsWin = SettingsWindowController(model: model)
         settingsWindow = settingsWin
         menuBarManager.onOpenSettings = { [weak settingsWin] in settingsWin?.show() }
         menuBarManager.onOpenSetup = { [weak self] in self?.showSetupWizard() }
-        menuBarManager.onCheckForUpdates = { [weak updates] in updates?.checkForUpdates() }
+        menuBarManager.onCheckForUpdates = { [weak self] in self?.checkForUpdatesManually() }
 
-        // Demo Mode is a passive surface inside this process. Its button state comes from the
-        // already-deduplicated HID edges and its touch point comes from the existing multitouch
-        // stream; normal actions continue through their unchanged paths underneath it.
-        let demoWindow = DemoModeWindowController()
-        demoModeWindow = demoWindow
-        demoWindow.onVisibilityChanged = { [weak self] visible in
-            self?.menuBarManager.updateDemoModeVisibility(visible)
-            self?.refreshRawTouchObserver()
+        // Demo Mode is also launch-lazy. Its controller registers screen/Space observers in init,
+        // so keeping the feature off must mean the controller itself does not exist.
+        menuBarManager.onToggleDemoMode = { [weak self] in
+            guard let self else { return }
+            self.setDemoRemoteEnabled(!(self.demoModeWindow?.isVisible ?? false))
         }
-        demoWindow.onEnabledChangeRequested = { [weak self] enabled in
-            self?.setDemoRemoteEnabled(enabled)
+        remoteInputHandler?.onPhysicalButtonStateChanged = { [weak self] rawName, pressed in
+            self?.demoModeWindow?.setPhysicalButton(rawName, pressed: pressed)
         }
-        menuBarManager.onToggleDemoMode = { [weak self, weak demoWindow] in
-            self?.setDemoRemoteEnabled(!(demoWindow?.isVisible ?? false))
-        }
-        remoteInputHandler?.onPhysicalButtonStateChanged = { [weak demoWindow] rawName, pressed in
-            demoWindow?.setPhysicalButton(rawName, pressed: pressed)
-        }
-        remoteInputHandler?.onPhysicalButtonStateReset = { [weak demoWindow] in
-            demoWindow?.resetPhysicalButtons()
+        remoteInputHandler?.onPhysicalButtonStateReset = { [weak self] in
+            self?.demoModeWindow?.resetPhysicalButtons()
         }
         // Convenience: `./HyperVibe --settings` pops the window open immediately.
         if CommandLine.arguments.contains("--settings") {
@@ -1696,7 +1681,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Explicit developer/demo launch is a one-run visibility override. Ordinary launch,
         // menu-bar control, Settings and hot reload all use settings.demoRemoteEnabled.
         if CommandLine.arguments.contains("--demo-mode") {
-            DispatchQueue.main.async { [weak demoWindow] in demoWindow?.show() }
+            DispatchQueue.main.async { [weak self] in
+                self?.ensureDemoModeWindow().show()
+            }
         }
         remoteInputHandler?.onButtonActivity = { [weak self] in
             self?.touchHandler?.tryReconnectTrackpad()
@@ -1856,16 +1843,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let automaticUpdateChecks = t.automaticUpdateChecksEnabled
         let automaticUpdateDownloads = t.automaticallyDownloadUpdatesEnabled
-        Task { @MainActor [weak updateManager] in
-            updateManager?.apply(
-                automaticChecks: automaticUpdateChecks,
-                automaticDownloads: automaticUpdateDownloads
-            )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if automaticUpdateChecks {
+                self.ensureUpdateManager()?.apply(
+                    automaticChecks: true,
+                    automaticDownloads: automaticUpdateDownloads
+                )
+            } else {
+                // If the updater already exists (because checks used to be on, or the user made a
+                // manual check), disable scheduling live. A restart then drops the object entirely.
+                self.updateManager?.apply(
+                    automaticChecks: false,
+                    automaticDownloads: automaticUpdateDownloads
+                )
+            }
         }
         statusItem?.isVisible = t.menuBarIconEnabled
         statusWidget?.setEnabled(t.statusWidgetEnabled)
         voicePipelineHUD?.setEnabled(t.dictation.pipelineOverlayEnabled)
-        demoModeWindow?.setVisible(t.demoRemoteEnabled)
+        if t.demoRemoteEnabled {
+            ensureDemoModeWindow().setVisible(true)
+        } else {
+            demoModeWindow?.setVisible(false)
+        }
         let wasShowingLayerHUD = layerHUDEnabled
         layerHUDEnabled = t.layerHUDEnabled
         if wasShowingLayerHUD, !t.layerHUDEnabled { layerHUD?.hideImmediately() }
@@ -1996,6 +1997,55 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Menu-bar and in-window context-menu requests travel through the same Settings model as the
     /// SwiftUI toggle. This keeps the live window, GUI and hot-reloaded JSON on one value.
+    @MainActor
+    private func ensureUpdateManager() -> UpdateManager? {
+        guard let model = settingsModel else { return nil }
+        if let updateManager { return updateManager }
+
+        let updates = UpdateManager()
+        updateManager = updates
+        updates.onUpdateAvailable = { [weak model, weak menuBar = menuBarManager] version in
+            model?.availableUpdateVersion = version
+            menuBar?.setAvailableUpdate(version: version)
+        }
+        updates.onUpdateCleared = { [weak model, weak menuBar = menuBarManager] in
+            model?.availableUpdateVersion = nil
+            menuBar?.setAvailableUpdate(version: nil)
+        }
+        // Install every callback before starting: a cached/local feed can complete on the next
+        // run-loop turn, and the first gentle reminder must not race past the UI observers.
+        updates.start(
+            automaticChecks: model.tune.automaticUpdateChecksEnabled,
+            automaticDownloads: model.tune.automaticallyDownloadUpdatesEnabled
+        )
+        rmDebug("🪶 Sparkle updater created on demand")
+        return updates
+    }
+
+    @MainActor
+    private func checkForUpdatesManually() {
+        guard let updates = ensureUpdateManager() else { return }
+        updates.checkForUpdates()
+    }
+
+    private func ensureDemoModeWindow() -> DemoModeWindowController {
+        if let demoModeWindow { return demoModeWindow }
+        let demo = DemoModeWindowController()
+        demoModeWindow = demo
+        demo.onVisibilityChanged = { [weak self] visible in
+            self?.menuBarManager.updateDemoModeVisibility(visible)
+            self?.refreshRawTouchObserver()
+        }
+        demo.onEnabledChangeRequested = { [weak self] enabled in
+            self?.setDemoRemoteEnabled(enabled)
+        }
+        if let connected = lastConnectedState {
+            demo.setConnected(connected)
+        }
+        rmDebug("🪶 Demo Remote controller created on demand")
+        return demo
+    }
+
     private func setDemoRemoteEnabled(_ enabled: Bool) {
         guard let model = settingsModel else {
             demoModeWindow?.setVisible(enabled)
