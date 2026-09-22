@@ -57,13 +57,14 @@ belong in `docs/mic-reverse-engineering.md`.
   `~/Library/Application Support/HyperVibe/Corpus/YYYY-MM-DD/<time-id>/`:
   - `audio.wav` — mono PCM16 at the existing Voice capture sample rate;
   - `capture.json` — immutable capture facts (id/times/app/action/audio source/rate/frames/duration);
-  - `ime.json` — written separately only when the general pasteboard changes after this utterance,
-    containing the observed text and attribution source. The pre-existing clipboard text is never
-    persisted.
-- Clipboard association is deliberately labelled best-effort. The recorder polls for up to 2 s
-  after release and cancels an older pending watch when a new utterance begins, preventing the next
-  utterance's clipboard change from being attached to the previous sample. Accessibility-based text
-  differencing is a later phase if the external IME proves not to publish reliable clipboard text.
+  - `ime.clipboard.json` — written only when the general pasteboard changes after this utterance;
+  - `ime.accessibility.json` — written when the original focused AX text field exposes a readable
+    value and the post-utterance value yields a non-empty changed span. Only that changed span and
+    replacement length are persisted; the field's pre-existing text is never written to disk.
+- Clipboard and Accessibility are independent observations rather than competing truth sources.
+  Clipboard is polled for up to 2 s after release; AX is sampled only four times in that window to
+  avoid repeated synchronous cross-process IPC. Secure text fields are excluded. A new utterance
+  invalidates the older pending watch so sample N+1 cannot be attached to sample N.
 - Corpus files are mode 0600, sample directories are 0700, and the corpus root is excluded from
   automatic backup to avoid silently pushing a growing private audio dataset into cloud backup.
 
