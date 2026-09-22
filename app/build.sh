@@ -20,6 +20,7 @@ SWIFT_FILES=(
     "BuiltinMicFeeder.swift"
     "VoiceCredentials.swift"
     "VoiceAudioCapture.swift"
+    "CorpusRecorder.swift"
     "VoiceFeedbackSound.swift"
     "VoiceTranscriptionClient.swift"
     "VoiceHistory.swift"
