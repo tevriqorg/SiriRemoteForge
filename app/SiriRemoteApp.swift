@@ -39,6 +39,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var gattDiagnostics: GATTDiagnostics?
     /// Feeds the built-in mic into the "Siri Remote Mic" device when Siri isn't held (Phase 2b).
     private var builtinMicFeeder: BuiltinMicFeeder?
+    /// Long-term local dataset capture for the external Siri-button voice route. This remains
+    /// independent from Native Voice/cloud transcription and allocates capture work only per hold.
+    private var voiceCorpusRecorder: VoiceCorpusRecorder?
     /// App-native low-latency speech-to-text. Separate from the legacy external PTT hotkey route.
     private var voiceDictation: VoiceDictationCoordinator?
     /// Pre-rendered, paired native-Voice edge sounds. The existing Layer 1 external workflow keeps
@@ -1522,13 +1525,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             progress?.end(firedIndex: firedIndex)
             persistentStatus?.endHold(firedIndex: firedIndex)
         }
-        remoteInputHandler?.onContinuousActionBegan = { [weak self, weak persistentStatus] handled in
+        remoteInputHandler?.onContinuousActionBegan = {
+            [weak self, weak persistentStatus, weak model] handled in
+            let corpusCandidate: Bool
+            switch handled.action {
+            case .holdKeystroke(_), .pushToTalk(_):
+                corpusCandidate = handled.key == "button.siri"
+                    && model?.tune.corpusCaptureEnabled == true
+            default:
+                corpusCandidate = false
+            }
             if case .pushToTalk = handled.action {
                 self?.builtinMicFeeder?.setVoiceMetering(true)
+            } else if corpusCandidate {
+                // Corpus capture reads the same remote/built-in rings as Native Voice. Raising
+                // metering demand here wakes the remote pipeline even though the external F10
+                // workflow itself never enters VoiceDictationCoordinator.
+                self?.builtinMicFeeder?.setVoiceMetering(true)
+            }
+            if corpusCandidate {
+                if self?.voiceCorpusRecorder == nil { self?.voiceCorpusRecorder = VoiceCorpusRecorder() }
+                self?.voiceCorpusRecorder?.begin(handled)
             }
             persistentStatus?.beginContinuousAction(handled)
         }
         remoteInputHandler?.onContinuousActionEnded = { [weak self, weak persistentStatus] key in
+            self?.voiceCorpusRecorder?.end(actionKey: key)
             self?.builtinMicFeeder?.setVoiceMetering(false)
             persistentStatus?.endContinuousAction(key: key)
         }
@@ -1818,6 +1840,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         remoteInputHandler?.doubleTapWindow = t.doubleTapWindow
         remoteInputHandler?.spacesModeWindow = t.spacesModeWindow
         findCursorEnabled = t.findCursorEnabled
+        if t.corpusCaptureEnabled, voiceCorpusRecorder == nil {
+            voiceCorpusRecorder = VoiceCorpusRecorder()
+            if let root = voiceCorpusRecorder?.rootURL.path {
+                rmDebug("🗂 corpus: enabled root=\(root)")
+            }
+        }
         Loc.shared.apply(configValue: t.interfaceLanguage)
         // Visual-QC only: render the installed App in another supported language without writing
         // the user's config.jsonc or legacy defaults. Production launches never pass this flag.
@@ -1945,6 +1973,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             s.dragIndicatorEnabled = t.dragIndicatorEnabled
             s.showSetupWizardOnFirstLaunch = t.showSetupWizardOnFirstLaunch
             s.focusFollowsCursor = t.focusFollowsCursor
+            s.corpusCaptureEnabled = t.corpusCaptureEnabled
             s.dictation = t.dictation
             s.circularScroll = t.circularConfig
         }
