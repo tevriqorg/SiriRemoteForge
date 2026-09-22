@@ -141,6 +141,7 @@ final class ConfigWriterTests: XCTestCase {
         "holdHUDEnabled": true,
         "dragIndicatorEnabled": false,
         "showSetupWizardOnFirstLaunch": false,
+        "corpusCaptureEnabled": true,
         "dictation": {
           "enabled": true,
           "activeMode": "streaming",
