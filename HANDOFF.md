@@ -1,6 +1,6 @@
 # SiriRemoteForge — living handoff
 
-Last updated: 2026-09-02 (Australia/Sydney)
+Last updated: 2026-09-22 (Australia/Sydney)
 
 This document is the concise source of truth for continuing development. Keep it updated whenever
 the architecture, user-facing mappings, build/run workflow, or microphone investigation changes.
@@ -23,12 +23,70 @@ belong in `docs/mic-reverse-engineering.md`.
 - These rules are also recorded in the repository-root `AGENTS.md` so future coding sessions inherit
   them before changing or deploying the App.
 
-- Canonical repository: `https://github.com/HOLODATA-COM/SiriRemoteForge`, branch `main`.
+- Canonical upstream: `https://github.com/HOLODATA-COM/SiriRemoteForge`, branch `main`.
   **GPL-3.0-or-later** as of 2026-07-22, going public; the paid-release plan was dropped. Upstream's
   MIT notice is retained in `NOTICE` — see the licensing note at the end for why that is mandatory.
-- Local checkout: the repository root (`siriremote-release`).
+- Development fork: `https://github.com/tevriq/SiriRemoteForge` (since 2026-09-22). The local checkout
+  uses the fork as `origin` and the canonical repository as `upstream`, so a plain `git push` cannot
+  reach the public repository by accident. Local-only artifacts (`work/` app backups and
+  `config.modified.jsonc`) are deliberately untracked; `config.modified.jsonc` is NOT a copy of the
+  live config and must never be used to overwrite it.
+- Local checkout: `~/GitHub/SiriRemoteForge` (relocated 2026-09-22 from a session scratch directory).
 - Current branch: `main`. Use `git rev-parse HEAD` for the exact current commit; this living document
   no longer pins a SHA that becomes stale after every deployment note.
+
+### ⚡ LATEST — 2026-09-22: `holdKeystroke` — a real held shortcut (committed `dfbc7d4`, deployed)
+
+- New action **`holdKeystroke(keys)`**. It keeps the configured combo physically DOWN from the
+  physical press edge until the release edge, using `Keys.holdBegin`/`holdEnd`. There are now three
+  edge semantics and they must not be confused:
+  - `keystroke` — one tap, on the press edge;
+  - `pushToTalk` — fires the combo on BOTH raw edges as a toggle pair (press = ON, release = OFF);
+  - `holdKeystroke` — one real key-down, held for the whole press.
+  A genuine hold-to-talk shortcut no longer has to be expressed as a toggle pair.
+- Routing is branch **2** of `RemoteInputHandler.routeButton`, immediately after Spaces Mode and
+  before push-to-talk. Promotion waits out the same `pushToTalkActivationDelay` (0.2 s) accidental-
+  touch boundary; a release before it cancels silently. The combo is captured at press time, so a
+  layer switch, an app/mode change, or a config hot-reload mid-hold cannot orphan the key-up.
+  `stopHeldKeystroke` is called from `endPressScopedWork`, from remote disconnect, and via
+  `stopAllHeldKeystrokes` — per the bug class below, press-scoped state must be released on EVERY
+  teardown path.
+- `MacActionExecutor` deliberately does NOT synthesize a tap for a stray non-button dispatch: the
+  contract is a real held key, so a swipe/tap binding resolving to `holdKeystroke` does nothing
+  rather than firing a half-press.
+- The same change adds `handleConfiguredAction(_:key:)`, used by the button path wherever it used to
+  call `controller.handle(InputEvent(key:))` directly. It supplies the motion payload the existing
+  `ring.up`/`ring.down` `mouse scroll` bindings need (`dy: ±120`); touch scrolling still provides its
+  own delta through the normal path. Button bindings have no motion payload of their own.
+- `StatusWidget`'s external held-voice presentation now covers `holdKeystroke` as well as
+  `pushToTalk`, so the Voice HUD stays correct for the new action.
+- Presentation: label suffix `⌇` (push-to-talk uses `⇅`), `mic.fill` symbol and the red orb tint.
+  `LayoutView` gains a "Hold keystroke" editor kind; `ConfigStore` documents the action in the
+  generated config header.
+- Verification: SiriRemoteCore **135/135** (adds `testHoldKeystrokeJSONRoundTrips`; the action is also
+  included in the config-writer fixture and the icon-audit list); `git diff --check` clean. The
+  deployed App at `/Applications/HyperVibe.app` is build **70** / `1.0.0-local.70`, and its executable
+  SHA-256 `fa3e39eb7a348ac6512f833c7d00d5d2a3c7edac56817da6c3bb95112ea4f802` is identical to the
+  workspace copy at `app/HyperVibe.app` — so the running App already contained this action. The code
+  was live and in use for ten days before it was committed.
+- Live config: `button.siri` is `holdKeystroke` / `f10` (was `keystroke` / `f9`), changed for a
+  WeChat hold-to-talk case. The pre-change config is kept at `work/config.before-wechat-hold.jsonc`.
+- **Two known issues, deliberately deferred by the user on 2026-09-22 — fix before trusting the
+  Siri button:**
+  - **The `button.siri` multi-tap and hold bindings are now unreachable.** The live config still
+    binds `button.siri.double` (enter), `.hold` (f9) and `.triple` (escape), but the `holdKeystroke`
+    branch returns on both edges without the quick-tap/`configuredDouble` handling that the
+    push-to-talk branch carries. A quick tap therefore fires nothing, and those three bindings are
+    dead configuration. Fix by teaching the branch the push-to-talk quick-tap dance, or by deleting
+    the three bindings.
+  - **Native Voice is unreachable on a `holdKeystroke` button.** Branch 2 returns before branch 3,
+    and branch 3 is where `nativePushToTalkPending` is armed, so enabling Settings → Voice has no
+    effect on a button whose base binding is `holdKeystroke`. Harmless for the current WeChat use,
+    but it means the two Voice paths cannot share one button today.
+- Note for the next reader: `/tmp/hypervibe.log` shows ~126 `🔗 held-keystroke RELEASE` lines and NO
+  press-edge lines for the same holds. That is a logging-channel difference, not a defect — the press
+  edge uses `print()` (stdout, redacted under the hardened runtime) while the release edge uses
+  `rmDebug()` (direct file write). Do not read the absence as a broken promotion.
 
 ### ⚡ LATEST — 2026-09-02: beta.8 published + authenticated update path verified
 
