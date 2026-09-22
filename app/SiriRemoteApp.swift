@@ -1331,7 +1331,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Sparkle is optional runtime infrastructure. Automatic checks disabled at launch means no
         // UpdateManager/SPU controller is created at all; a manual check or enabling automatic
         // checks later creates it on demand.
-        model.onCheckForUpdates = { [weak self] in self?.checkForUpdatesManually() }
+        model.onCheckForUpdates = { [weak self] in
+            Task { @MainActor in self?.checkForUpdatesManually() }
+        }
         if model.tune.automaticUpdateChecksEnabled {
             _ = ensureUpdateManager()
         } else {
@@ -1342,7 +1344,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow = settingsWin
         menuBarManager.onOpenSettings = { [weak settingsWin] in settingsWin?.show() }
         menuBarManager.onOpenSetup = { [weak self] in self?.showSetupWizard() }
-        menuBarManager.onCheckForUpdates = { [weak self] in self?.checkForUpdatesManually() }
+        menuBarManager.onCheckForUpdates = { [weak self] in
+            Task { @MainActor in self?.checkForUpdatesManually() }
+        }
 
         // Demo Mode is also launch-lazy. Its controller registers screen/Space observers in init,
         // so keeping the feature off must mean the controller itself does not exist.
