@@ -224,10 +224,6 @@ final class VoiceCorpusRecorder {
                 ofItemAtPath: directory.path
             )
         }
-        var root = rootURL
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try? root.setResourceValues(values)
     }
 
     private func persistCapture(session: Session, endedAt: Date, audio: VoiceCapturedAudio) {
