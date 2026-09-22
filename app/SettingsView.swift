@@ -191,6 +191,16 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle(isOn: $model.tune.corpusCaptureEnabled) {
+                    rowLabel(L("Record external voice corpus"), "waveform.badge.plus")
+                }
+            } header: {
+                Text(L("Voice Corpus"))
+            } footer: {
+                Text(L("When enabled, each promoted Side-button external voice hold is saved locally as WAV plus capture metadata. If the input method changes the clipboard after that utterance, HyperVibe stores the observed text separately. Native Voice does not need to be enabled."))
+            }
+
+            Section {
                 Picker(L("Voice mode"), selection: voiceModeBinding) {
                     Text(L("External")).tag(Config.DictationMode.external)
                     Text(L("Final · polished")).tag(Config.DictationMode.final)
