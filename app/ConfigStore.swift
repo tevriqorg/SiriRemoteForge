@@ -147,6 +147,9 @@ enum ConfigStore {
         "holdHUDEnabled": true,       // larger release-to-select progress HUD
         "dragIndicatorEnabled": true, // cursor-adjacent sticky-drag badge
         "showSetupWizardOnFirstLaunch": true,
+        // Long-term external voice corpus capture. Off by default because enabling it persistently
+        // stores microphone audio plus best-effort IME clipboard text under Application Support.
+        "corpusCaptureEnabled": false,
         // App-native speech-to-text. API keys live in machine-local credential storage; never put
         // them in this shareable configuration.
         // `final` returns one optionally polished result; `streaming` inserts live deltas and skips
