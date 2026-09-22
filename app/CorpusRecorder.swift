@@ -9,6 +9,7 @@
 //
 
 import AppKit
+import ApplicationServices
 import Foundation
 
 final class VoiceCorpusRecorder {
@@ -340,13 +341,13 @@ final class VoiceCorpusRecorder {
         let old = Array(before)
         let new = Array(after)
         var prefix = 0
-        while prefix < old.count, prefix < new.count, old[prefix] == new[prefix] {
+        while prefix < old.count && prefix < new.count && old[prefix] == new[prefix] {
             prefix += 1
         }
         var suffix = 0
-        while suffix < old.count - prefix,
-              suffix < new.count - prefix,
-              old[old.count - 1 - suffix] == new[new.count - 1 - suffix] {
+        while suffix < old.count - prefix
+              && suffix < new.count - prefix
+              && old[old.count - 1 - suffix] == new[new.count - 1 - suffix] {
             suffix += 1
         }
         let newEnd = new.count - suffix
