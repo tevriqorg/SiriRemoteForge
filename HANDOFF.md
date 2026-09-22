@@ -37,6 +37,29 @@ belong in `docs/mic-reverse-engineering.md`.
 - Current branch: `main`. Use `git rev-parse HEAD` for the exact current commit; this living document
   no longer pins a SHA that becomes stale after every deployment note.
 
+### ⚡ LATEST — 2026-09-22: disabled heavy subsystems are launch-gated (phase 1)
+
+- Working branch: `chatgpt/lazy-disabled-subsystems-20260922`. This is deliberately a low-risk
+  lifecycle refactor, not a feature deletion or a Lite fork.
+- `StatusWidgetController` is no longer constructed when `settings.statusWidgetEnabled == false`
+  at process launch. `HoldProgressHUD` is likewise not constructed or prewarmed when
+  `settings.holdHUDEnabled == false`.
+- `VoicePipelineHUDController` is created only when Native Voice is enabled AND its pipeline overlay
+  is enabled. When `settings.dictation.enabled == false` at launch, the App now skips creating
+  `VoiceDictationCoordinator`, loading the personal dictionary, preloading Voice credentials,
+  creating Voice feedback players, and prewarming transcription/cleanup sessions.
+- Existing external Voice / held-shortcut routing is intentionally untouched. In particular,
+  `button.siri = holdKeystroke(f10)` follows the same `RemoteInputHandler` branch as before.
+  `BuiltinMicFeeder` is intentionally still started unconditionally in this phase because it also
+  supports the external/virtual-microphone path; do not gate it behind Native Voice without first
+  proving that current WeChat/remote-mic usage does not depend on it.
+- Lifecycle contract: turning an already-running optional surface/Voice feature off still hides or
+  deconfigures it live where supported, but a relaunch is what releases the launch-created objects.
+  If Native Voice, Status Widget, Hold HUD, or Voice Pipeline HUD was absent at launch, enabling it
+  requires a relaunch. Settings footers now state this explicitly.
+- Goal of this phase: make “turn unused feature off, then restart” materially reduce the resident
+  runtime before attempting larger decomposition of `SiriRemoteApp.swift` / `RemoteInputHandler.swift`.
+
 ### ⚡ LATEST — 2026-09-22: `holdKeystroke` — a real held shortcut (committed `dfbc7d4`, deployed)
 
 - New action **`holdKeystroke(keys)`**. It keeps the configured combo physically DOWN from the
