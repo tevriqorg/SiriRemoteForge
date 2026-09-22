@@ -12,7 +12,7 @@ import AppKit
 import Foundation
 
 final class VoiceCorpusRecorder {
-    private struct Session {
+    private final class Session {
         let id: UUID
         let startedAt: Date
         let directoryURL: URL
@@ -23,6 +23,25 @@ final class VoiceCorpusRecorder {
         let bundleIdentifier: String?
         let clipboardBaselineChangeCount: Int
         let capture: VoiceAudioCaptureSession
+        var textTarget: VoiceTextTarget?
+        var clipboardCaptured = false
+        var accessibilityCaptured = false
+
+        init(id: UUID, startedAt: Date, directoryURL: URL,
+             actionKey: String, actionKind: String, shortcutKeys: String,
+             applicationName: String?, bundleIdentifier: String?,
+             clipboardBaselineChangeCount: Int, capture: VoiceAudioCaptureSession) {
+            self.id = id
+            self.startedAt = startedAt
+            self.directoryURL = directoryURL
+            self.actionKey = actionKey
+            self.actionKind = actionKind
+            self.shortcutKeys = shortcutKeys
+            self.applicationName = applicationName
+            self.bundleIdentifier = bundleIdentifier
+            self.clipboardBaselineChangeCount = clipboardBaselineChangeCount
+            self.capture = capture
+        }
     }
 
     private struct CaptureRecord: Codable {
@@ -64,13 +83,15 @@ final class VoiceCorpusRecorder {
         let version: Int
         let capturedAt: Date
         let source: String
-        let pasteboardChangeCount: Int
         let text: String
+        let pasteboardChangeCount: Int?
+        let replacedCharacterCount: Int?
 
         private enum CodingKeys: String, CodingKey {
             case version, source, text
             case capturedAt = "captured_at"
             case pasteboardChangeCount = "pasteboard_change_count"
+            case replacedCharacterCount = "replaced_character_count"
         }
     }
 
@@ -124,7 +145,7 @@ final class VoiceCorpusRecorder {
             onMinimumDurationReached: {},
             onMaximumDuration: { rmDebug("🗂 corpus: five-minute safety cap reached") }
         )
-        active = Session(
+        let session = Session(
             id: id,
             startedAt: startedAt,
             directoryURL: directoryURL,
@@ -136,7 +157,21 @@ final class VoiceCorpusRecorder {
             clipboardBaselineChangeCount: pasteboard.changeCount,
             capture: capture
         )
+        active = session
         capture.start()
+
+        // Audio is already running before this bounded AX query. Keep only the in-memory BEFORE
+        // state needed to derive this utterance's inserted/replaced text; never persist the field's
+        // pre-existing contents. Secure targets are discarded immediately.
+        if let app {
+            let seed = VoiceTextTargetSeed(
+                pid: app.processIdentifier,
+                bundleIdentifier: app.bundleIdentifier,
+                applicationName: app.localizedName ?? L("Current App")
+            )
+            let target = VoiceTextDeliverer.resolveTarget(seed)
+            if !target.isSecure { session.textTarget = target }
+        }
         rmDebug("🗂 corpus: began id=\(id.uuidString) key=\(handled.key)")
     }
 
@@ -229,31 +264,69 @@ final class VoiceCorpusRecorder {
     }
 
     /// Poll briefly after release because external IMEs often publish their completed string a few
-    /// hundred milliseconds later. A new utterance invalidates the previous watch so its text can
-    /// never be accidentally attached to the next sample.
+    /// hundred milliseconds later. Clipboard and Accessibility are independent observations: when
+    /// both are available we keep both, allowing later offline alignment to decide which is useful.
+    /// A new utterance invalidates the previous watch so text from sample N+1 cannot attach to N.
     private func watchClipboard(for session: Session, generation: Int, attempt: Int) {
         guard generation == clipboardWatchGeneration else { return }
-        let pasteboard = NSPasteboard.general
-        if pasteboard.changeCount != session.clipboardBaselineChangeCount,
-           let text = pasteboard.string(forType: .string)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-           !text.isEmpty {
-            clipboardWatchGeneration &+= 1
-            let observation = IMEObservation(
-                version: 1,
-                capturedAt: Date(),
-                source: "clipboard_change_after_external_voice",
-                pasteboardChangeCount: pasteboard.changeCount,
-                text: text
-            )
-            ioQueue.async { [weak self] in
-                self?.persistIME(observation, for: session)
+
+        if !session.clipboardCaptured {
+            let pasteboard = NSPasteboard.general
+            if pasteboard.changeCount != session.clipboardBaselineChangeCount,
+               let text = pasteboard.string(forType: .string)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+               !text.isEmpty {
+                session.clipboardCaptured = true
+                let observation = IMEObservation(
+                    version: 1,
+                    capturedAt: Date(),
+                    source: "clipboard_change_after_external_voice",
+                    text: text,
+                    pasteboardChangeCount: pasteboard.changeCount,
+                    replacedCharacterCount: nil
+                )
+                ioQueue.async { [weak self] in
+                    self?.persistIME(observation, filename: "ime.clipboard.json", for: session)
+                }
             }
-            return
         }
 
+        // AX is intentionally sampled only a handful of times so a slow custom editor cannot turn
+        // the 100 ms clipboard poll into repeated cross-process IPC. We only persist the minimal
+        // changed span, never the before/after field values.
+        if !session.accessibilityCaptured,
+           [2, 5, 10, 20].contains(attempt),
+           let target = session.textTarget,
+           let before = target.valueBeforeInsertion,
+           NSWorkspace.shared.frontmostApplication?.processIdentifier == target.pid,
+           let element = target.focusedElement {
+            AXUIElementSetMessagingTimeout(element, 0.025)
+            var value: CFTypeRef?
+            if AXUIElementCopyAttributeValue(
+                element, kAXValueAttribute as CFString, &value
+            ) == .success, let after = value as? String,
+               let delta = Self.changedText(before: before, after: after) {
+                session.accessibilityCaptured = true
+                let observation = IMEObservation(
+                    version: 1,
+                    capturedAt: Date(),
+                    source: "accessibility_value_diff_after_external_voice",
+                    text: delta.inserted,
+                    pasteboardChangeCount: nil,
+                    replacedCharacterCount: delta.removedCount
+                )
+                ioQueue.async { [weak self] in
+                    self?.persistIME(observation, filename: "ime.accessibility.json", for: session)
+                }
+            }
+        }
+
+        let axUnavailable = session.textTarget?.valueBeforeInsertion == nil
+        if session.clipboardCaptured && (session.accessibilityCaptured || axUnavailable) { return }
         guard attempt < 20 else {
-            rmDebug("🗂 corpus: no clipboard text observed id=\(session.id.uuidString)")
+            if !session.clipboardCaptured && !session.accessibilityCaptured {
+                rmDebug("🗂 corpus: no IME text observed id=\(session.id.uuidString)")
+            }
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -261,15 +334,38 @@ final class VoiceCorpusRecorder {
         }
     }
 
-    private func persistIME(_ observation: IMEObservation, for session: Session) {
+    private static func changedText(before: String, after: String)
+        -> (inserted: String, removedCount: Int)? {
+        guard before != after else { return nil }
+        let old = Array(before)
+        let new = Array(after)
+        var prefix = 0
+        while prefix < old.count, prefix < new.count, old[prefix] == new[prefix] {
+            prefix += 1
+        }
+        var suffix = 0
+        while suffix < old.count - prefix,
+              suffix < new.count - prefix,
+              old[old.count - 1 - suffix] == new[new.count - 1 - suffix] {
+            suffix += 1
+        }
+        let newEnd = new.count - suffix
+        guard prefix <= newEnd else { return nil }
+        let inserted = String(new[prefix..<newEnd])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !inserted.isEmpty else { return nil }
+        return (inserted, old.count - prefix - suffix)
+    }
+
+    private func persistIME(_ observation: IMEObservation, filename: String, for session: Session) {
         do {
-            let url = session.directoryURL.appendingPathComponent("ime.json")
+            let url = session.directoryURL.appendingPathComponent(filename)
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
             try encoder.encode(observation).write(to: url, options: .atomic)
             try secureFile(url)
-            rmDebug("🗂 corpus: attached clipboard text id=\(session.id.uuidString) "
+            rmDebug("🗂 corpus: attached \(observation.source) id=\(session.id.uuidString) "
                     + "chars=\(observation.text.count)")
         } catch {
             rmDebug("🗂 corpus: IME save failed id=\(session.id.uuidString): "
