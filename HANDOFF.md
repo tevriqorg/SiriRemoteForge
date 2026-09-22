@@ -62,9 +62,11 @@ belong in `docs/mic-reverse-engineering.md`.
     value and the post-utterance value yields a non-empty changed span. Only that changed span and
     replacement length are persisted; the field's pre-existing text is never written to disk.
 - Clipboard and Accessibility are independent observations rather than competing truth sources.
-  Clipboard is polled for up to 2 s after release; AX is sampled only four times in that window to
-  avoid repeated synchronous cross-process IPC. Secure text fields are excluded. A new utterance
-  invalidates the older pending watch so sample N+1 cannot be attached to sample N.
+  Clipboard is polled for up to 2 s after release, but accepted only while the original frontmost
+  app is still frontmost and Secure Input is off; AX uses the same app/Secure-Input boundary and is
+  sampled only four times to avoid repeated synchronous cross-process IPC. Secure text fields are
+  excluded. A new utterance invalidates the older pending watch so sample N+1 cannot be attached to
+  sample N.
 - Corpus files are mode 0600 and the corpus root/day/sample directory chain is mode 0700. Corpus is
   intentionally **not** excluded from normal backup: these recordings are intended to become a
   long-lived training/evaluation asset, so silent non-backup would be a data-loss risk. Storage
