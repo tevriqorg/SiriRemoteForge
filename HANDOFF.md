@@ -65,8 +65,10 @@ belong in `docs/mic-reverse-engineering.md`.
   Clipboard is polled for up to 2 s after release; AX is sampled only four times in that window to
   avoid repeated synchronous cross-process IPC. Secure text fields are excluded. A new utterance
   invalidates the older pending watch so sample N+1 cannot be attached to sample N.
-- Corpus files are mode 0600, sample directories are 0700, and the corpus root is excluded from
-  automatic backup to avoid silently pushing a growing private audio dataset into cloud backup.
+- Corpus files are mode 0600 and the corpus root/day/sample directory chain is mode 0700. Corpus is
+  intentionally **not** excluded from normal backup: these recordings are intended to become a
+  long-lived training/evaluation asset, so silent non-backup would be a data-loss risk. Storage
+  relocation, archival compression and any cloud-sync policy should be explicit later decisions.
 
 ### ⚡ LATEST — 2026-09-22: disabled heavy subsystems are launch-gated (phase 1)
 
