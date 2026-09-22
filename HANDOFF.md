@@ -26,11 +26,13 @@ belong in `docs/mic-reverse-engineering.md`.
 - Canonical upstream: `https://github.com/HOLODATA-COM/SiriRemoteForge`, branch `main`.
   **GPL-3.0-or-later** as of 2026-07-22, going public; the paid-release plan was dropped. Upstream's
   MIT notice is retained in `NOTICE` — see the licensing note at the end for why that is mandatory.
-- Development fork: `https://github.com/tevriq/SiriRemoteForge` (since 2026-09-22). The local checkout
-  uses the fork as `origin` and the canonical repository as `upstream`, so a plain `git push` cannot
-  reach the public repository by accident. Local-only artifacts (`work/` app backups and
-  `config.modified.jsonc`) are deliberately untracked; `config.modified.jsonc` is NOT a copy of the
-  live config and must never be used to overwrite it.
+- Development fork: `https://github.com/tevriqorg/SiriRemoteForge` (since 2026-09-22; moved from the
+  personal `tevriq` account to the `tevriqorg` organization the same day — the old path redirects,
+  but the local `origin` points at the org URL). The local checkout uses the fork as `origin` and the
+  canonical repository as `upstream`, so a plain `git push` cannot reach the public repository by
+  accident. Local-only artifacts (`work/` app backups and `config.modified.jsonc`) are deliberately
+  untracked; `config.modified.jsonc` is NOT a copy of the live config and must never be used to
+  overwrite it.
 - Local checkout: `~/GitHub/SiriRemoteForge` (relocated 2026-09-22 from a session scratch directory).
 - Current branch: `main`. Use `git rev-parse HEAD` for the exact current commit; this living document
   no longer pins a SHA that becomes stale after every deployment note.
