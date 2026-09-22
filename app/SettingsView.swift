@@ -187,7 +187,7 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 5)
             } footer: {
-                Text(L("Capture and the cloud connection are pre-warmed on the raw press edge. A quick tap cancels silently; Voice appears only after the existing 0.2-second hold threshold."))
+                Text(L("Capture and the cloud connection are pre-warmed on the raw press edge. A quick tap cancels silently; Voice appears only after the existing 0.2-second hold threshold. Turning Native Voice on from a launch where it was off requires a relaunch; turning it off takes effect immediately, and relaunching releases its coordinator, credential preload, and warm network sessions."))
             }
 
             Section {
@@ -1309,7 +1309,7 @@ struct SettingsView: View {
         } header: {
             Text(L("On-screen Status"))
         } footer: {
-            Text(L("Every persistent or transient status surface can be enabled independently here or in config.jsonc."))
+            Text(L("Every persistent or transient status surface can be enabled independently here or in config.jsonc. Status Widget and Long-press HUD are not constructed when disabled at launch; relaunch after enabling them, or after disabling them when you want their memory released."))
         }
     }
 
