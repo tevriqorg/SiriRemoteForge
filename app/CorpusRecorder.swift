@@ -216,11 +216,14 @@ final class VoiceCorpusRecorder {
     }
 
     private func prepareDirectory(_ url: URL) throws {
-        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-        try? fileManager.setAttributes(
-            [.posixPermissions: NSNumber(value: Int16(0o700))],
-            ofItemAtPath: url.path
-        )
+        let dayURL = url.deletingLastPathComponent()
+        for directory in [rootURL, dayURL, url] {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            try fileManager.setAttributes(
+                [.posixPermissions: NSNumber(value: Int16(0o700))],
+                ofItemAtPath: directory.path
+            )
+        }
         var root = rootURL
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
