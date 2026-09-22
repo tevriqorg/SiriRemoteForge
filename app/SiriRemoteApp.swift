@@ -1244,42 +1244,79 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let config = ConfigStore.loadConfig()
         SystemControlState.prewarm()
 
-        let persistentStatus = StatusWidgetController(
-            layers: config.settings.layers,
-            icons: config.settings.icons,
-            enabled: config.settings.statusWidgetEnabled
-        )
-        statusWidget = persistentStatus
-        let pipelineHUD = VoicePipelineHUDController(
-            layers: config.settings.layers,
-            icons: config.settings.icons,
-            enabled: config.settings.dictation.pipelineOverlayEnabled
-        )
-        voicePipelineHUD = pipelineHUD
+        // Heavy presentation surfaces are launch-gated. Turning one off in Settings and
+        // restarting now means its windows/layers are never constructed in that process.
+        let persistentStatus: StatusWidgetController?
+        if config.settings.statusWidgetEnabled {
+            let widget = StatusWidgetController(
+                layers: config.settings.layers,
+                icons: config.settings.icons,
+                enabled: true
+            )
+            statusWidget = widget
+            persistentStatus = widget
+        } else {
+            persistentStatus = nil
+            print("🪶 Status Widget disabled at launch — surface not created")
+        }
+
+        let pipelineHUD: VoicePipelineHUDController?
+        if config.settings.dictation.enabled
+            && config.settings.dictation.pipelineOverlayEnabled {
+            let hud = VoicePipelineHUDController(
+                layers: config.settings.layers,
+                icons: config.settings.icons,
+                enabled: true
+            )
+            voicePipelineHUD = hud
+            pipelineHUD = hud
+        } else {
+            pipelineHUD = nil
+            print("🪶 Voice Pipeline HUD disabled at launch — surface not created")
+        }
 
         // Tuning: config.jsonc's `settings` block is the source of truth — always seed from it (a
         // stale saved tune no longer shadows config edits), and re-seed on every hot-reload below.
         let model = SettingsModel(initial: TuneSettings(seed: config.settings))
-        let dictation = VoiceDictationCoordinator(runtime: model.voiceRuntime)
-        voiceDictation = dictation
-        let voiceFeedback = VoiceFeedbackSound()
-        voiceFeedbackSound = voiceFeedback
-        prepareVoiceDictionary(config.settings.dictation.dictionary)
-        dictation.configureHistoryProfiles(config.appProfiles)
-        dictation.configure(
-            config.settings.dictation,
-            prewarmModes: config.settings.dictation.outputModesToPrewarm(
-                layerIDs: config.settings.layers.map(\.id)
+
+        // Native Voice is an optional subsystem, not part of the remote-control core. When Voice
+        // is disabled at launch, do not allocate its coordinator, preload credentials/dictionary,
+        // create feedback players, or prewarm transcription/cleanup sessions. Enabling Voice from
+        // that state intentionally takes effect after relaunch; disabling a running Voice subsystem
+        // tears down its warm sessions through configure(), and a relaunch releases the objects too.
+        let dictation: VoiceDictationCoordinator?
+        let voiceFeedback: VoiceFeedbackSound?
+        if config.settings.dictation.enabled {
+            let coordinator = VoiceDictationCoordinator(runtime: model.voiceRuntime)
+            voiceDictation = coordinator
+            dictation = coordinator
+
+            let feedback = config.settings.dictation.feedbackSoundsEnabled
+                ? VoiceFeedbackSound() : nil
+            voiceFeedbackSound = feedback
+            voiceFeedback = feedback
+
+            prepareVoiceDictionary(config.settings.dictation.dictionary)
+            coordinator.configureHistoryProfiles(config.appProfiles)
+            coordinator.configure(
+                config.settings.dictation,
+                prewarmModes: config.settings.dictation.outputModesToPrewarm(
+                    layerIDs: config.settings.layers.map(\.id)
+                )
             )
-        )
-        model.voiceCredentials.onCredentialsChanged = { [weak self, weak model] in
-            guard let self, let model else { return }
-            let settings = model.tune.dictation
-            let layerIDs = model.config?.settings.layers.map(\.id) ?? []
-            self.configureVoiceImmediately(settings, layerIDs: layerIDs,
-                                           forceReconnect: true)
+            model.voiceCredentials.onCredentialsChanged = { [weak self, weak model] in
+                guard let self, let model else { return }
+                let settings = model.tune.dictation
+                let layerIDs = model.config?.settings.layers.map(\.id) ?? []
+                self.configureVoiceImmediately(settings, layerIDs: layerIDs,
+                                               forceReconnect: true)
+            }
+            model.voiceCredentials.preload()
+        } else {
+            dictation = nil
+            voiceFeedback = nil
+            print("🪶 Native Voice disabled at launch — coordinator and prewarm skipped")
         }
-        model.voiceCredentials.preload()
         model.onApply = { [weak self, weak model] tune in
             self?.applyTune(tune)
             model?.noteConfigSavePending(from: .tuning)
@@ -1453,9 +1490,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Release-to-select needs to be visible: a track that fills while a button is held, with a
         // tick per bound stage and the name of the action that runs if it is released right now.
-        let progress = HoldProgressHUD()
-        holdHUD = progress
-        progress.prewarm()
+        let progress: HoldProgressHUD?
+        if config.settings.holdHUDEnabled {
+            let hud = HoldProgressHUD()
+            holdHUD = hud
+            hud.prewarm()
+            progress = hud
+        } else {
+            progress = nil
+            print("🪶 Hold HUD disabled at launch — prewarm skipped")
+        }
         remoteInputHandler?.onHoldBegan = { [weak self, weak persistentStatus] startedAt, base, stages in
             persistentStatus?.beginHold(startedAt: startedAt, base: base, stages: stages)
             guard self?.holdHUDEnabled == true else { return }
@@ -1464,7 +1508,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return .init(label: v.label, image: v.image, symbolName: v.symbolName,
                              iconOnly: v.iconOnly, tint: v.tint, symbolCue: v.symbolCue)
             }
-            progress.begin(startedAt: startedAt,
+            progress?.begin(startedAt: startedAt,
                            base: base.map { face($0.action, $0.presentation) },
                            stages: stages.map {
                                var f = face($0.action, $0.presentation)
@@ -1475,7 +1519,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         remoteInputHandler?.onHoldEnded = { [weak persistentStatus] firedIndex in
             // `end` is safe even when the large HUD was disabled; calling it unconditionally also
             // dismisses a HUD immediately if the user switches that preference off mid-hold.
-            progress.end(firedIndex: firedIndex)
+            progress?.end(firedIndex: firedIndex)
             persistentStatus?.endHold(firedIndex: firedIndex)
         }
         remoteInputHandler?.onContinuousActionBegan = { [weak self, weak persistentStatus] handled in
@@ -1490,8 +1534,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Native dictation starts its expensive work on the raw press edge. The handler still owns
         // tap/hold disambiguation, so a quick side-button tap never flashes Voice or inserts audio.
-        remoteInputHandler?.shouldUseNativeDictation = { [weak model] in
-            guard let settings = model?.tune.dictation else { return false }
+        remoteInputHandler?.shouldUseNativeDictation = { [weak self, weak model] in
+            guard self?.voiceDictation != nil,
+                  let settings = model?.tune.dictation else { return false }
             return settings.resolvedOutputMode(for: nil) != nil
         }
         remoteInputHandler?.onNativeDictationPrimed = {
@@ -1512,16 +1557,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         remoteInputHandler?.onNativeDictationMisconfigured = { [weak dictation] in
             dictation?.reportConfigurationError(VoiceAPIError.missingOpenAIKeyMessage)
         }
-        remoteInputHandler?.shouldCopyLastNativeDictationOnDouble = { [weak model] in
-            guard let settings = model?.tune.dictation else { return false }
+        remoteInputHandler?.shouldCopyLastNativeDictationOnDouble = { [weak self, weak model] in
+            guard self?.voiceDictation != nil,
+                  let settings = model?.tune.dictation else { return false }
             return settings.copyLastOnSideButtonDouble
                 && settings.resolvedOutputMode(for: nil) != nil
         }
         remoteInputHandler?.onCopyLastNativeDictation = { [weak dictation] in
             dictation?.copyLastTranscript() == true
         }
-        remoteInputHandler?.shouldUseVoiceModeCycleChord = { [weak model] in
-            model?.tune.dictation.enabled == true
+        remoteInputHandler?.shouldUseVoiceModeCycleChord = { [weak self, weak model] in
+            self?.voiceDictation != nil && model?.tune.dictation.enabled == true
         }
         remoteInputHandler?.onVoiceModeCycleRequested = {
             [weak self, weak model, weak persistentStatus, weak pipelineHUD] in
@@ -1539,10 +1585,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             pipelineHUD?.showVoiceModeSwitch(next)
             print("🎙 Voice mode → \(next.rawValue) (Mute + Side)")
         }
-        dictation.onMeteringChanged = { [weak self] active in
+        dictation?.onMeteringChanged = { [weak self] active in
             self?.builtinMicFeeder?.setVoiceMetering(active)
         }
-        dictation.onListeningBegan = {
+        dictation?.onListeningBegan = {
             [weak persistentStatus, weak pipelineHUD, weak model, weak voiceFeedback] handled in
             persistentStatus?.beginContinuousAction(handled)
             pipelineHUD?.beginListening()
@@ -1555,26 +1601,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             pipelineHUD?.suppressMeter(for: VoiceFeedbackSound.acousticExclusionDuration)
             voiceFeedback?.play(.began, volume: settings.feedbackSoundVolume)
         }
-        dictation.onSelectionEditingBegan = { [weak persistentStatus, weak pipelineHUD]
+        dictation?.onSelectionEditingBegan = { [weak persistentStatus, weak pipelineHUD]
             characterCount, applicationName in
             persistentStatus?.showSelectionEditing(characterCount: characterCount,
                                                    applicationName: applicationName)
             pipelineHUD?.showSelectionEditing(characterCount: characterCount,
                                               applicationName: applicationName)
         }
-        dictation.onListeningEnded = { [weak persistentStatus, weak pipelineHUD] key in
+        dictation?.onListeningEnded = { [weak persistentStatus, weak pipelineHUD] key in
             persistentStatus?.endNativeContinuousAction(key: key)
             pipelineHUD?.endListening()
         }
-        dictation.onShortCaptureDiscarded = { [weak pipelineHUD] in
+        dictation?.onShortCaptureDiscarded = { [weak pipelineHUD] in
             pipelineHUD?.dismissShortCapture()
         }
-        dictation.onCaptureStopped = { [weak model, weak voiceFeedback] in
+        dictation?.onCaptureStopped = { [weak model, weak voiceFeedback] in
             guard let settings = model?.tune.dictation,
                   settings.feedbackSoundsEnabled else { return }
             voiceFeedback?.play(.ended, volume: settings.feedbackSoundVolume)
         }
-        dictation.onPhaseChanged = { [weak persistentStatus, weak pipelineHUD] phase, message in
+        dictation?.onPhaseChanged = { [weak persistentStatus, weak pipelineHUD] phase, message in
             persistentStatus?.showNativeDictationPhase(phase, message: message)
             pipelineHUD?.showNativeDictationPhase(phase, message: message)
         }
@@ -1743,13 +1789,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Push cursor-feel settings from config into the touch handler (also called on hot reload).
     /// Push UI tuning values into the running touch handler (initial + on every settings change).
     private func applyTune(_ t: TuneSettings) {
-        prepareVoiceDictionary(t.dictation.dictionary)
-        if t.dictation.enabled { builtinMicFeeder?.prepareVoiceCapture() }
+        // A Voice subsystem that was disabled at process launch stays absent until relaunch. If it
+        // exists, live changes still reconfigure it exactly as before; turning Voice off tears down
+        // its warm sessions without forcing an immediate process restart.
+        if voiceDictation != nil {
+            prepareVoiceDictionary(t.dictation.dictionary)
+            if t.dictation.enabled { builtinMicFeeder?.prepareVoiceCapture() }
+            let dictationSettings = t.dictation
+            let layerIDs = settingsModel?.config?.settings.layers.map(\.id) ?? []
+            scheduleVoiceConfigure(dictationSettings, layerIDs: layerIDs)
+        }
         // Settings callbacks are intentionally plain closures, while the latency state machine is
         // main-actor isolated. Hop explicitly instead of weakening its isolation guarantees.
-        let dictationSettings = t.dictation
-        let layerIDs = settingsModel?.config?.settings.layers.map(\.id) ?? []
-        scheduleVoiceConfigure(dictationSettings, layerIDs: layerIDs)
         touchHandler?.cursorSpeed = CGFloat(t.cursorSpeed)
         touchHandler?.cursorDeadzone = CGFloat(t.cursorDeadzone)
         touchHandler?.accelMin = CGFloat(t.accelMin)
@@ -1819,6 +1870,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func scheduleVoiceConfigure(_ settings: Config.DictationSettings,
                                         layerIDs: [String]) {
+        guard voiceDictation != nil else { return }
         voiceConfigureWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
@@ -1837,6 +1889,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func configureVoiceImmediately(_ settings: Config.DictationSettings,
                                            layerIDs: [String],
                                            forceReconnect: Bool = false) {
+        guard voiceDictation != nil else { return }
         voiceConfigureWork?.cancel()
         voiceConfigureWork = nil
         Task { @MainActor [weak self] in
