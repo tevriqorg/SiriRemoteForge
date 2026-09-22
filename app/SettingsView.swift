@@ -1319,7 +1319,7 @@ struct SettingsView: View {
         } header: {
             Text(L("On-screen Status"))
         } footer: {
-            Text(L("Every persistent or transient status surface can be enabled independently here or in config.jsonc. Status Widget and Long-press HUD are not constructed when disabled at launch; relaunch after enabling them, or after disabling them when you want their memory released."))
+            Text(L("Every persistent or transient status surface can be enabled independently here or in config.jsonc. Status Widget, Demo Remote and Long-press HUD are not constructed when disabled at launch; relaunch after enabling launch-bound surfaces, or after disabling them when you want their memory released."))
         }
     }
 
@@ -1353,7 +1353,7 @@ struct SettingsView: View {
         } header: {
             Text(L("Software Updates"))
         } footer: {
-            Text(L("Verified Full Setup updates download in the background. macOS asks for administrator approval only when an update installs system components."))
+            Text(L("Verified Full Setup updates download in the background. When automatic checks are disabled at launch, the Sparkle updater is not created; a manual check creates it on demand. macOS asks for administrator approval only when an update installs system components."))
                 .font(.system(size: 11))
         }
     }
