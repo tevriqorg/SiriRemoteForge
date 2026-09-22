@@ -309,6 +309,10 @@ class RemoteInputHandler {
     /// an app switch, a config hot-reload) — the target hotkey is a toggle, and an unpaired edge
     /// would leave it latched on. Closed by the release edge or by `endPressScopedWork`.
     private var pushToTalkOpen: [String: String] = [:]
+    /// Held external shortcuts currently down: buttonName → the combo parsed at press time.
+    /// Unlike `pushToTalk`, this is a real key lifecycle: holdBegin on promotion, holdEnd on release.
+    private var heldKeystrokes: [String: KeyMap.Combo] = [:]
+    private var heldKeystrokePending: [String: DispatchWorkItem] = [:]
     /// Push-to-talk presses whose ACTIVATION delay has not yet elapsed: buttonName → the scheduled
     /// opener. A too-quick tap (released before `pushToTalkActivationDelay`) cancels this and fires
     /// nothing, so a brush of the button can't toggle dictation on; holding past the delay fires the
@@ -947,7 +951,7 @@ class RemoteInputHandler {
     }
 
     /// Route a button press/release through the config engine. Priority on press: Spaces Mode →
-    /// `.pushToTalk` (both raw edges, no discrimination) → `.repeatKey` (auto-repeat) →
+    /// `.pushToTalk`/`.holdKeystroke` (raw edges, no discrimination) → `.repeatKey` (auto-repeat) →
     /// `.layer` (momentary layer) → multi-stage long-press / tap.
     /// Long-press is RELEASE-TO-SELECT (see the `holdThreshold`/`armedHolds` docs): a press
     /// captures one clock anchor plus every bound `.hold*` threshold, and elapsed time selects the
@@ -1002,7 +1006,36 @@ class RemoteInputHandler {
             }
         }
 
-        // 2) Push-to-talk: fire the combo on BOTH raw edges — press AND release — immediately,
+        // 2) Held external keystroke: use the same 0.2s accidental-touch boundary as pushToTalk,
+        //    but keep the configured combo genuinely down until the physical Siri release. The
+        //    combo is captured at press time so mode/layer/config changes cannot orphan its key-up.
+        if !pressed && (heldKeystrokePending[buttonName] != nil || heldKeystrokes[buttonName] != nil) {
+            stopHeldKeystroke(buttonName)
+            return
+        }
+        if pressed, case let .holdKeystroke(keys)? = controller.resolvedAction(for: tapKey) {
+            let handled = Controller.HandledAction(
+                key: tapKey,
+                action: .holdKeystroke(keys: keys),
+                presentation: controller.resolvedPresentation(for: tapKey)
+            )
+            heldKeystrokePending.removeValue(forKey: buttonName)?.cancel()
+            let activationDeadline = DispatchTime.now() + pushToTalkActivationDelay
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.heldKeystrokePending.removeValue(forKey: buttonName)
+                guard self.remoteButtonState.isPressed(buttonName) else { return }
+                guard let held = Keys.holdBegin(keys) else { return }
+                self.heldKeystrokes[buttonName] = held
+                self.onContinuousActionBegan?(handled)
+                print("🔘 \(tapKey) → holdKeystroke '\(keys)' (press edge, +\(self.pushToTalkActivationDelay)s)")
+            }
+            heldKeystrokePending[buttonName] = work
+            DispatchQueue.main.asyncAfter(deadline: activationDeadline, execute: work)
+            return
+        }
+
+        // 3) Push-to-talk: fire the combo on BOTH raw edges — press AND release — immediately,
         //    bypassing tap/double/taphold/hold discrimination and auto-repeat entirely. Built for
         //    toggle hotkeys (press = dictation ON, release = OFF), so the two edges must always
         //    come in matched pairs:
@@ -1051,7 +1084,7 @@ class RemoteInputHandler {
                         }
                     } else if configuredDouble {
                         let dbl = tapVariant(tapKey, 2)
-                        if controller.handle(InputEvent(key: dbl)) {
+                        if handleConfiguredAction(controller, key: dbl) {
                             print("🔘 \(dbl) (pushToTalk double)")
                         }
                     }
@@ -1078,7 +1111,7 @@ class RemoteInputHandler {
                 // this quick tap from a hold (which opens dictation), so short- and long-press never
                 // collide.
                 pushToTalkTapTime[buttonName] = nil
-                if let singleTapKey, controller.handle(InputEvent(key: singleTapKey)) {
+                if let singleTapKey, handleConfiguredAction(controller, key: singleTapKey) {
                     print("🔘 \(singleTapKey) (pushToTalk tap)")
                 }
             }
@@ -1195,7 +1228,7 @@ class RemoteInputHandler {
             return
         }
 
-        // 3) Hold-to-repeat: if this key resolves to a `.repeatKey` action, bypass the normal
+        // 4) Hold-to-repeat: if this key resolves to a `.repeatKey` action, bypass the normal
         //    hold/double discrimination — a press fires once and starts an auto-repeat, and the
         //    release stops it. (Because this bypasses the `.hold` path, an inherited `<key>.hold`
         //    binding is intentionally NOT reachable for a `.repeatKey` key.)
@@ -1218,7 +1251,7 @@ class RemoteInputHandler {
             return
         }
 
-        // 4) Layer key: `.layer` and `.layerCycle` act like a shift/layer key with BOTH activation styles
+        // 5) Layer key: `.layer` and `.layerCycle` act like a shift/layer key with BOTH activation styles
         //    (see the `layerButton`/`stickyLayer` docs above). The layer key CONSUMES its own press —
         //    it fires nothing itself; keys pressed while a layer is active resolve in that layer
         //    (Controller.handle/hasBinding/resolvedAction all consult the active layer).
@@ -1470,11 +1503,11 @@ class RemoteInputHandler {
                 print("🖥 Spaces Mode: exit (ring.up long-press)")
                 return
             }
-            if controller.handle(InputEvent(key: holdKey)) { print("🔘 \(holdKey) (config)") }
+            if handleConfiguredAction(controller, key: holdKey) { print("🔘 \(holdKey) (config)") }
             armSpacesMode()                      // Mission Control now open → arm desktop switching
             return
         }
-        if controller.handle(InputEvent(key: holdKey)) { print("🔘 \(holdKey) (config)") }
+        if handleConfiguredAction(controller, key: holdKey) { print("🔘 \(holdKey) (config)") }
     }
 
     // MARK: - Hold-to-repeat (Feature 1)
@@ -1580,7 +1613,7 @@ class RemoteInputHandler {
                 self.stopKeyRepeat(buttonName)
                 return
             }
-            _ = controller.handle(InputEvent(key: tapKey))
+            _ = handleConfiguredAction(controller, key: tapKey)
         }
         repeatTimers[buttonName] = timer
         timer.resume()
@@ -1669,6 +1702,23 @@ class RemoteInputHandler {
         }
     }
 
+    /// Release a held external shortcut and cancel a not-yet-promoted opener. Safe on every
+    /// teardown path, including a release swallowed by a guard or a remote disconnect.
+    private func stopHeldKeystroke(_ buttonName: String) {
+        heldKeystrokePending.removeValue(forKey: buttonName)?.cancel()
+        if let held = heldKeystrokes.removeValue(forKey: buttonName) {
+            Keys.holdEnd(held)
+            onContinuousActionEnded?(RemoteInputHandler.configKey(for: buttonName))
+            rmDebug("🔗 held-keystroke RELEASE \(buttonName)")
+        }
+    }
+
+    private func stopAllHeldKeystrokes() {
+        for name in Set(heldKeystrokePending.keys).union(heldKeystrokes.keys) {
+            stopHeldKeystroke(name)
+        }
+    }
+
     private func stopAllKeyRepeats() {
         // Route every armed button through stopKeyRepeat so held keys are LIFTED, not just timers
         // cancelled — a cancelled timer that left a key down would stick it forever.
@@ -1732,7 +1782,7 @@ class RemoteInputHandler {
             let n = self.tapRun.removeValue(forKey: buttonName) ?? 1
             self.pendingTap[buttonName] = nil
             let key = self.tapVariant(tapKey, n)
-            if controller.handle(InputEvent(key: key)) { print("🔘 \(key) (config)") }
+            if handleConfiguredAction(controller, key: key) { print("🔘 \(key) (config)") }
         }
         pendingTap[buttonName] = work
         DispatchQueue.main.asyncAfter(deadline: .now() + doubleTapWindow, execute: work)
@@ -1761,7 +1811,7 @@ class RemoteInputHandler {
             tapRun.removeValue(forKey: buttonName)
             tapFiredThisPress.insert(buttonName)
             let key = tapVariant(tapKey, n)
-            if controller.handle(InputEvent(key: key)) { print("🔘 \(key) (config)") }
+            if handleConfiguredAction(controller, key: key) { print("🔘 \(key) (config)") }
         }
     }
 
@@ -1791,10 +1841,28 @@ class RemoteInputHandler {
         if n >= deepestTapCount(tapKey) {
             tapRun.removeValue(forKey: buttonName)
             let key = tapVariant(tapKey, n)
-            if controller.handle(InputEvent(key: key)) { print("🔘 \(key) (config)") }
+            if handleConfiguredAction(controller, key: key) { print("🔘 \(key) (config)") }
         } else {
             scheduleTapResolution(buttonName, tapKey: tapKey)
         }
+    }
+
+    /// Button bindings have no motion payload. Supply one only for the existing ring scroll
+    /// action; touch scrolling continues to provide its own delta through the normal path.
+    private func handleConfiguredAction(_ controller: Controller, key: String) -> Bool {
+        let payload: EventPayload?
+        if case .mouse(let op)? = controller.resolvedAction(for: key), op == "scroll" {
+            if key == "ring.up" || key.hasPrefix("ring.up.") {
+                payload = .delta(dx: 0, dy: 120)
+            } else if key == "ring.down" || key.hasPrefix("ring.down.") {
+                payload = .delta(dx: 0, dy: -120)
+            } else {
+                payload = nil
+            }
+        } else {
+            payload = nil
+        }
+        return controller.handle(InputEvent(key: key, payload: payload))
     }
     
     /// Drop whatever sticky drag is carrying. Safe to call when not dragging.
@@ -1992,6 +2060,7 @@ class RemoteInputHandler {
         // system, with no way back short of clicking manually.
         endStickyDrag()
         stopAllKeyRepeats()   // don't leak auto-repeat timers if the remote disconnects mid-hold
+        stopAllHeldKeystrokes() // belt-and-suspenders for any held shortcut missing from button state
         cancelHoldStages()    // and don't leave release-to-select stage timers pending
         cancelPendingSingles()   // and don't let a delayed single fire after disconnect
         disarmSpacesMode()    // and don't leave Spaces Mode armed with no device attached
@@ -2075,6 +2144,7 @@ class RemoteInputHandler {
 
     private func endPressScopedWork(_ buttonName: String) {
         stopKeyRepeat(buttonName)
+        stopHeldKeystroke(buttonName)
 
         // An open push-to-talk pair holds a toggle hotkey "on" between its edges the way a held
         // repeat key holds a key down — and like the key-up inside `stopKeyRepeat` above, the

@@ -58,7 +58,7 @@ public enum ShortcutModifier: String, CaseIterable, Hashable, Sendable {
 }
 
 /// Converts physical macOS key events and manually entered aliases into the canonical strings used
-/// by `Action.keystroke`, `pushToTalk`, `repeatKey`, and `KeyMap`.
+/// by `Action.keystroke`, `pushToTalk`, `holdKeystroke`, `repeatKey`, and `KeyMap`.
 public enum ShortcutCodec {
     /// Build a deterministic canonical chord. Multiple physical modifiers from the same family are
     /// retained (for example `cmd+rcmd`), while repeated copies of the exact same key are removed.

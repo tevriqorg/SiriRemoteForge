@@ -49,6 +49,10 @@ final class MacActionExecutor: ActionExecutor {
             // combo there and never reach the executor). This handles a stray dispatch — e.g. the
             // action bound to a swipe/tap, which has no release edge — as a single keystroke.
             Keys.synthesize(keys)
+        case .holdKeystroke:
+            // Physical press/release routing owns this action. A stray non-button dispatch must not
+            // synthesize a tap, because the contract is a real held key.
+            break
         case .repeatKey(let keys, _, _):
             // The auto-repeat cadence is driven by RemoteInputHandler (press starts the repeat,
             // release stops it). Here we just synthesize a single keystroke — this handles the

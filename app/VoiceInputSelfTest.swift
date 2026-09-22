@@ -714,6 +714,7 @@ enum VoiceInputSelfTest {
 
         let iconAuditActions: [Action] = [
             .keystroke(keys: "delete"), .pushToTalk(keys: "rctrl+rcmd+ropt"),
+            .holdKeystroke(keys: "rctrl+rcmd+ropt"),
             .media(key: "next"), .mouse(op: "rightclick"),
             .launch(app: "Definitely Missing", url: nil), .shell(command: "true"),
             .applescript(script: "return 1"), .mode(to: "global"), .layer("L1"),

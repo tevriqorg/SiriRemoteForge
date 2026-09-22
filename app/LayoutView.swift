@@ -727,6 +727,7 @@ private struct ActionSlotEditor: View {
 
     enum Kind: String, CaseIterable, Identifiable {
         case none = "None", keystroke = "Keystroke", pushToTalk = "Push to talk",
+             holdKeystroke = "Hold keystroke",
              media = "Media", mouse = "Mouse",
              launchApp = "Launch app", openURL = "Open URL", shell = "Shell",
              applescript = "AppleScript", space = "Switch space", brightness = "Brightness",
@@ -765,6 +766,7 @@ private struct ActionSlotEditor: View {
                 Section(L("Keys & media")) {
                     Text(L(Kind.keystroke.rawValue)).tag(Kind.keystroke)
                     Text(L(Kind.pushToTalk.rawValue)).tag(Kind.pushToTalk)
+                    Text(L(Kind.holdKeystroke.rawValue)).tag(Kind.holdKeystroke)
                     Text(L(Kind.repeatKey.rawValue)).tag(Kind.repeatKey)
                     Text(L(Kind.media.rawValue)).tag(Kind.media)
                     Text(L(Kind.mouse.rawValue)).tag(Kind.mouse)
@@ -813,6 +815,12 @@ private struct ActionSlotEditor: View {
             HStack(spacing: 8) {
                 ShortcutRecorderField(value: text, onCommit: commitShortcut)
                 Text(L("fires on press AND on release"))
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+        case .holdKeystroke:
+            HStack(spacing: 8) {
+                ShortcutRecorderField(value: text, onCommit: commitShortcut)
+                Text(L("holds until release"))
                     .font(.system(size: 10)).foregroundStyle(.secondary)
             }
         case .shell:
@@ -865,6 +873,7 @@ private struct ActionSlotEditor: View {
         switch a {
         case .keystroke(let k):       kind = .keystroke; text = k
         case .pushToTalk(let k):      kind = .pushToTalk; text = k
+        case .holdKeystroke(let k):   kind = .holdKeystroke; text = k
         case .media(let k):           kind = .media; pick = k
         case .mouse(let op):          kind = .mouse; pick = op
         case .launch(let app, let url):
@@ -912,6 +921,8 @@ private struct ActionSlotEditor: View {
             onChange(shortcut.isEmpty ? nil : .keystroke(keys: shortcut))
         case .pushToTalk:
             onChange(shortcut.isEmpty ? nil : .pushToTalk(keys: shortcut))
+        case .holdKeystroke:
+            onChange(shortcut.isEmpty ? nil : .holdKeystroke(keys: shortcut))
         case .repeatKey:
             onChange(shortcut.isEmpty
                      ? nil
@@ -926,6 +937,7 @@ private struct ActionSlotEditor: View {
         case .none:        return nil
         case .keystroke:   return text.isEmpty ? nil : .keystroke(keys: text)
         case .pushToTalk:  return text.isEmpty ? nil : .pushToTalk(keys: text)
+        case .holdKeystroke: return text.isEmpty ? nil : .holdKeystroke(keys: text)
         case .repeatKey:   return text.isEmpty ? nil : .repeatKey(keys: text, delay: repDelay, interval: repInterval)
         case .media:       return .media(key: pick.isEmpty ? "playpause" : pick)
         case .mouse:       return .mouse(op: pick.isEmpty ? "click" : pick)

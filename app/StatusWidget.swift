@@ -738,7 +738,15 @@ final class StatusWidgetController: NSObject, NSWindowDelegate {
                   base: (key: handled.key, action: handled.action,
                          presentation: handled.presentation),
                   stages: [])
-        guard case .pushToTalk = handled.action else { return }
+        switch handled.action {
+        case .pushToTalk, .holdKeystroke:
+            beginExternalHeldVoice(handled)
+        default:
+            return
+        }
+    }
+
+    private func beginExternalHeldVoice(_ handled: Controller.HandledAction) {
         onMain { [weak self] in
             guard let self = self, self.enabled, self.isHolding,
                   self.holdBase?.key == handled.key else { return }
@@ -799,9 +807,14 @@ final class StatusWidgetController: NSObject, NSWindowDelegate {
             // Only close the session that opened this key; a stale release from another mirrored
             // HID interface must not dismiss a newer continuous action.
             guard self.holdBase?.key == key else { return }
-            if let base = self.holdBase, case .pushToTalk = base.action {
-                self.endVoiceHold(awaitsNativePhase: awaitsNativePhase)
-                return
+            if let base = self.holdBase {
+                switch base.action {
+                case .pushToTalk, .holdKeystroke:
+                    self.endVoiceHold(awaitsNativePhase: awaitsNativePhase)
+                    return
+                default:
+                    break
+                }
             }
             self.endHold(firedIndex: 0)
         }

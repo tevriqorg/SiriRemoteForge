@@ -120,6 +120,7 @@ enum ActionVisual {
 
     private static func fallbackLabel(_ action: Action) -> String {
         if case .pushToTalk = action { return L("Voice Input") }
+        if case .holdKeystroke = action { return L("Hold keystroke") }
         // An `open -a` shell command reads far better as the app's name than as the raw command.
         if case .shell(let command) = action, let app = appName(fromOpenCommand: command) {
             return app
@@ -264,7 +265,7 @@ enum ActionVisual {
     private static func defaultSymbolName(_ action: Action) -> String {
         switch action {
         case .keystroke(let keys): return keystrokeSymbolName(keys)
-        case .pushToTalk:  return "mic.fill"
+        case .pushToTalk, .holdKeystroke:  return "mic.fill"
         case .media(let key):
             switch key.lowercased() {
             case "next": return "forward.end.fill"

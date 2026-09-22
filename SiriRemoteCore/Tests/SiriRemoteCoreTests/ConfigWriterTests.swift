@@ -18,6 +18,7 @@ final class ConfigWriterTests: XCTestCase {
             .keystroke(keys: "rctrl+rcmd+ropt"),          // modifier-only hyperkey chord
             .pushToTalk(keys: "f17"),
             .pushToTalk(keys: "cmd+shift+d"),
+            .holdKeystroke(keys: "rctrl+rcmd+ropt"),
             .media(key: "playpause"),
             .mouse(op: "rightclick"),
             .launch(app: "Safari", url: nil),
@@ -93,6 +94,15 @@ final class ConfigWriterTests: XCTestCase {
         let o = try encodeToObject(decoded)
         XCTAssertEqual(o["action"] as? String, "pushToTalk")
         XCTAssertEqual(o["keys"] as? String, "f17")
+    }
+
+    func testHoldKeystrokeJSONRoundTrips() throws {
+        let json = Data(#"{"action":"holdKeystroke","keys":"rctrl+rcmd+ropt"}"#.utf8)
+        let decoded = try JSONDecoder().decode(Action.self, from: json)
+        XCTAssertEqual(decoded, .holdKeystroke(keys: "rctrl+rcmd+ropt"))
+        let o = try encodeToObject(decoded)
+        XCTAssertEqual(o["action"] as? String, "holdKeystroke")
+        XCTAssertEqual(o["keys"] as? String, "rctrl+rcmd+ropt")
     }
 
     // MARK: - Config: full round-trip through ConfigWriter + ConfigLoader
