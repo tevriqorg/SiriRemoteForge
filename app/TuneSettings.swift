@@ -39,6 +39,7 @@ struct TuneSettings: Codable, Equatable {
     var dragIndicatorEnabled: Bool
     var showSetupWizardOnFirstLaunch: Bool
     var focusFollowsCursor: Bool
+    var corpusCaptureEnabled: Bool
     var dictation: Config.DictationSettings
     var circularEnabled: Bool
     var circularMinRadius: Double
@@ -67,6 +68,7 @@ struct TuneSettings: Codable, Equatable {
         layerHUDEnabled: true, holdHUDEnabled: true,
         dragIndicatorEnabled: true, showSetupWizardOnFirstLaunch: true,
         focusFollowsCursor: false,
+        corpusCaptureEnabled: false,
         dictation: Config.DictationSettings(),
         circularEnabled: true,
         circularMinRadius: 0.35, circularStartThreshold: 0.35, circularPixelsPerRadian: 75,
@@ -109,6 +111,7 @@ struct TuneSettings: Codable, Equatable {
         dragIndicatorEnabled = s.dragIndicatorEnabled
         showSetupWizardOnFirstLaunch = s.showSetupWizardOnFirstLaunch
         focusFollowsCursor = s.focusFollowsCursor
+        corpusCaptureEnabled = s.corpusCaptureEnabled
         dictation = s.dictation
         circularEnabled = s.circularScroll.enabled
         circularMinRadius = s.circularScroll.minRadius
@@ -137,6 +140,7 @@ struct TuneSettings: Codable, Equatable {
          layerHUDEnabled: Bool, holdHUDEnabled: Bool,
          dragIndicatorEnabled: Bool, showSetupWizardOnFirstLaunch: Bool,
          focusFollowsCursor: Bool,
+         corpusCaptureEnabled: Bool,
          dictation: Config.DictationSettings,
          circularEnabled: Bool,
          circularMinRadius: Double, circularStartThreshold: Double, circularPixelsPerRadian: Double,
@@ -173,6 +177,7 @@ struct TuneSettings: Codable, Equatable {
         self.dragIndicatorEnabled = dragIndicatorEnabled
         self.showSetupWizardOnFirstLaunch = showSetupWizardOnFirstLaunch
         self.focusFollowsCursor = focusFollowsCursor
+        self.corpusCaptureEnabled = corpusCaptureEnabled
         self.dictation = dictation
         self.circularEnabled = circularEnabled
         self.circularMinRadius = circularMinRadius
