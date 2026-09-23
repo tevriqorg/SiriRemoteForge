@@ -17,9 +17,16 @@ final class UpdateManager: NSObject, SPUUpdaterDelegate, SPUStandardUserDriverDe
         userDriverDelegate: self
     )
     private var hasStarted = false
-    private let isLocalBuild = (Bundle.main.object(
-        forInfoDictionaryKey: "HyperVibeReleaseVersion"
-    ) as? String)?.contains("-local.") == true
+    private let updatesConfiguredForBuild: Bool = {
+        guard let release = Bundle.main.object(
+            forInfoDictionaryKey: "HyperVibeReleaseVersion"
+        ) as? String,
+        !release.contains("-local."),
+        Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String != nil,
+        Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String != nil
+        else { return false }
+        return true
+    }()
 
     /// A scheduled check found an update but intentionally did not steal focus. The app delegate
     /// mirrors this into the menu-bar badge and Settings. Selecting either surface calls
@@ -28,8 +35,8 @@ final class UpdateManager: NSObject, SPUUpdaterDelegate, SPUStandardUserDriverDe
     var onUpdateCleared: (() -> Void)?
 
     func start(automaticChecks: Bool, automaticDownloads: Bool) {
-        guard !isLocalBuild else {
-            rmDebug("🪶 local development build — Sparkle startup disabled")
+        guard updatesConfiguredForBuild else {
+            rmDebug("🪶 build has no active fork update identity — Sparkle startup disabled")
             return
         }
         apply(automaticChecks: automaticChecks, automaticDownloads: automaticDownloads)
@@ -39,17 +46,17 @@ final class UpdateManager: NSObject, SPUUpdaterDelegate, SPUStandardUserDriverDe
     }
 
     func apply(automaticChecks: Bool, automaticDownloads: Bool) {
-        guard !isLocalBuild else { return }
+        guard updatesConfiguredForBuild else { return }
         // Set checks first: Sparkle intentionally reports automatic downloads as unavailable while
         // checks are disabled. Re-enabling checks therefore restores the separately saved download
         // choice in the same call.
-        let checksEnabled = automaticChecks && !isLocalBuild
+        let checksEnabled = automaticChecks
         controller.updater.automaticallyChecksForUpdates = checksEnabled
         controller.updater.automaticallyDownloadsUpdates = checksEnabled && automaticDownloads
     }
 
     func checkForUpdates() {
-        guard !isLocalBuild else {
+        guard updatesConfiguredForBuild else {
             rmDebug("🪶 local development build — manual Sparkle check disabled")
             return
         }
