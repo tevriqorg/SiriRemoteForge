@@ -26,6 +26,7 @@ final class VoiceCorpusRecorder {
         let clipboardBaselineChangeCount: Int
         let capture: VoiceAudioCaptureSession
         var textTarget: VoiceTextTarget?
+        var endedAt: Date?
         var clipboardCaptured = false
         var accessibilityCaptured = false
         var frontmostAppChangedDuringObservation = false
@@ -234,6 +235,7 @@ final class VoiceCorpusRecorder {
         guard let session = active, session.actionKey == actionKey else { return }
         active = nil
         let endedAt = Date()
+        session.endedAt = endedAt
         let watchGeneration = clipboardWatchGeneration
         pendingObservation = session
         watchTextObservations(for: session, generation: watchGeneration, attempt: 0)
@@ -428,7 +430,14 @@ final class VoiceCorpusRecorder {
     }
 
     private func finalizeObservation(_ session: Session, textStatus: String) {
-        let observation = AttemptObservation(
+        let observation = makeAttemptObservation(session, textStatus: textStatus)
+        ioQueue.async { [weak self] in
+            self?.persistObservation(observation, for: session)
+        }
+    }
+
+    private func makeAttemptObservation(_ session: Session, textStatus: String) -> AttemptObservation {
+        AttemptObservation(
             version: 1,
             id: session.id,
             finalizedAt: Date(),
@@ -442,21 +451,58 @@ final class VoiceCorpusRecorder {
             imeOutcome: "not_inferred",
             networkStatus: "not_measured"
         )
-        ioQueue.async { [weak self] in
-            guard let self else { return }
-            do {
-                let url = session.directoryURL.appendingPathComponent("observation.json")
-                let encoder = JSONEncoder()
-                encoder.dateEncodingStrategy = .iso8601
-                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-                try encoder.encode(observation).write(to: url, options: .atomic)
-                try self.secureFile(url)
-                rmDebug("🗂 corpus: observation finalized id=\(session.id.uuidString)"
-                        + " text=\(textStatus)")
-            } catch {
-                rmDebug("🗂 corpus: observation save failed id=\(session.id.uuidString): "
-                        + error.localizedDescription)
+    }
+
+    private func persistObservation(_ observation: AttemptObservation, for session: Session) {
+        do {
+            let url = session.directoryURL.appendingPathComponent("observation.json")
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            try encoder.encode(observation).write(to: url, options: .atomic)
+            try secureFile(url)
+            rmDebug("🗂 corpus: observation finalized id=\(session.id.uuidString)"
+                    + " text=\(observation.textStatus)")
+        } catch {
+            rmDebug("🗂 corpus: observation save failed id=\(session.id.uuidString): "
+                    + error.localizedDescription)
+        }
+    }
+
+    /// Best-effort process-shutdown flush. Device teardown normally closes a held shortcut first,
+    /// but the ordinary corpus writer is asynchronous; waiting for this queue and synchronously
+    /// draining the capture prevents a quit/relaunch immediately after release from losing the raw
+    /// sample. A forced kill/power loss is outside the process's ability to guarantee.
+    func flushForTermination() {
+        clipboardWatchGeneration &+= 1
+
+        if let session = active {
+            active = nil
+            let endedAt = Date()
+            session.endedAt = endedAt
+            let audio = session.capture.stopBlockingForTermination()
+            ioQueue.sync {
+                persistCapture(session: session, endedAt: endedAt, audio: audio)
+                persistObservation(
+                    makeAttemptObservation(session, textStatus: "interrupted_by_app_termination"),
+                    for: session
+                )
             }
+        } else if let session = pendingObservation {
+            pendingObservation = nil
+            let endedAt = session.endedAt ?? Date()
+            let audio = session.capture.stopBlockingForTermination()
+            ioQueue.sync {
+                // This may repeat an already-completed async write; both writes use the same
+                // physical attempt/timestamp and atomic replacement, so the duplicate is harmless.
+                persistCapture(session: session, endedAt: endedAt, audio: audio)
+                let status = session.clipboardCaptured || session.accessibilityCaptured
+                    ? "observed" : "interrupted_by_app_termination"
+                persistObservation(makeAttemptObservation(session, textStatus: status), for: session)
+            }
+        } else {
+            // Wait behind any already-enqueued corpus writes before the process exits.
+            ioQueue.sync {}
         }
     }
 
