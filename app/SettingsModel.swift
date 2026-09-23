@@ -40,6 +40,9 @@ final class SettingsModel: ObservableObject {
     /// Applying `settings.launchAtLoginEnabled` crosses into SMAppService and can be rejected by
     /// macOS. Keep the requested JSON value intact while surfacing the real OS error in Settings.
     @Published var launchAtLoginError: String?
+    /// Recorder-known disk/write failures are factual App state, not inferred IME/network outcomes.
+    /// Keep the latest error visible until a later sample is persisted successfully.
+    @Published var corpusStorageError: String?
 
     /// Local development candidates deliberately have no active Sparkle feed. Keeping this as a
     /// computed build capability prevents Settings from presenting controls that can only no-op.
