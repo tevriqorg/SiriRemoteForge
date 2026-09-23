@@ -139,7 +139,7 @@ action.
 ## Install a beta build
 
 Published beta builds on the
-[Releases page](https://github.com/HOLODATA-COM/SiriRemoteForge/releases) provide three Apple-silicon
+[Releases page](https://github.com/tevriqorg/SiriRemoteForge/releases) provide three Apple-silicon
 downloads:
 
 - **Native Full Installer (recommended)** — open `HyperVibe-Full-Setup-…-arm64.pkg`. The standard
@@ -163,13 +163,13 @@ the private MultitouchSupport callback used by the remote trackpad.
 ```sh
 cd app
 ./build.sh              # compiles the app + SiriRemoteCore into ./HyperVibe
-./create_app_bundle.sh  # wraps it into HyperVibe.app (icon auto-generated, code-signed)
-open HyperVibe.app
+./create_app_bundle.sh  # stages .build/HyperVibe-Dev.app (icon auto-generated, signed)
+# Verify the staged candidate first; do not launch it while the installed stable App is running.
 ```
 
 `build.sh` produces a bare `./HyperVibe` you can also run directly (`./HyperVibe --settings` opens
 the settings window on launch; `--system-check` opens the live readiness screen).
-`create_app_bundle.sh` packages a double-clickable `HyperVibe.app`.
+`create_app_bundle.sh` stages a double-clickable `.build/HyperVibe-Dev.app` by default. Installing or launching that candidate is a separate rollback-protected validation step.
 
 **It's a menu-bar app** (no Dock icon): after launching, click the walkie-talkie icon in the menu bar
 for **Settings… / Quit**. If the menu-bar icon is hidden (e.g. behind the notch), just **double-click
