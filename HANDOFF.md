@@ -59,12 +59,10 @@ Recommended staging:
 cd app
 ./build.sh
 
-HYPERVIBE_APP_BUNDLE_PATH=".build/HyperVibe-Dev.app" \
-HYPERVIBE_SIGN_MODE=developer \
-# Optional when the Mac has more than one Apple Development identity:
-# HYPERVIBE_SIGN_ID='Apple Development: …' \
-./create_app_bundle.sh
+# Only needed when the Mac has more than one valid Apple Development identity:
+# export HYPERVIBE_SIGN_ID='Apple Development: …'
 
+HYPERVIBE_SIGN_MODE=developer ./create_app_bundle.sh
 codesign --verify --deep --strict --verbose=2 ".build/HyperVibe-Dev.app"
 ```
 
