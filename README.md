@@ -191,16 +191,20 @@ subsystem; the user does not have to quit or restart the app. The same System Ch
 Microphone, Automation, Siri Remote Mic components and PacketLogger, and remains available from the
 menu bar and Settings.
 
-The bundle is signed **without** the hardened runtime on purpose — under the hardened runtime the
-private MultitouchSupport touch callback trips code-signing enforcement and the app is killed the
-instant you touch the trackpad. `create_app_bundle.sh` prefers a stable local self-signed identity
-(`siriRemote Local Signing`) for local builds, so permissions survive rebuilds. It refuses to fall
-back silently; ad-hoc signing is available only when a public Release build requests it explicitly.
+The outer bundle is signed **without** the hardened runtime on purpose — under the hardened runtime
+the private MultitouchSupport touch callback trips code-signing enforcement and the app is killed the
+instant you touch the trackpad. Development builds in this fork use the developer's own
+`Apple Development:` identity (or an explicit `HYPERVIBE_SIGN_ID`) and never silently fall back to
+ad-hoc signing. The default fork bundle id is `org.tevriq.siriremoteforge`; override it with
+`HYPERVIBE_BUNDLE_ID` when needed. Changing certificate or bundle id is a macOS code-identity
+migration and may require granting TCC permissions again.
 
 ### Software updates
 
-HyperVibe checks its release feed daily by default. It can download a newer **app-only** archive in
-the background, or the user can choose **Check for Updates…** from either Settings or the menu bar.
+Packaged release builds can use Sparkle for updates. Local `-local.` development builds do not
+schedule automatic checks, and this fork's feed URL is configurable with
+`HYPERVIBE_UPDATE_FEED_URL`. A manual **Check for Updates…** remains available for an explicitly
+configured feed.
 Sparkle verifies every archive against the Ed25519 public key embedded in the app before extraction.
 The updater replaces only `HyperVibe.app`, so ordinary updates neither restart system audio nor ask
 for an administrator password. Full Setup remains a separate manual download for installing or
@@ -824,14 +828,15 @@ The app target is named `HyperVibe` internally (historical, from the fork below)
 ## Development
 
 ```sh
-cd SiriRemoteCore && swift test     # unit tests for the engine
-cd app && ./build.sh                # build the app
-cd driverkit && ./build-host.sh     # build-only DEXT + host check
+swift test --package-path SiriRemoteCore   # unit tests for the engine
+cd app && ./build.sh                       # build the app
+# Then package with your Apple Development identity; see AGENTS.md.
 ```
 
 Debug logging goes to `/tmp/hypervibe.log` (HID events, device selection, executed actions).
 
-Current development state and continuation notes live in [`HANDOFF.md`](HANDOFF.md). The **working**
+Current development state and continuation notes live in [`HANDOFF.md`](HANDOFF.md). Superseded
+handoffs and experiments are retained under [`deprecated/`](deprecated/README.md). The **working**
 microphone device is the `mic/` Bluetooth-router pipeline described [above](#microphone). Getting
 there meant ruling out the *in-band* approaches first; those dead ends and the full evidence log live
 in [`docs/mic-reverse-engineering.md`](docs/mic-reverse-engineering.md).
@@ -846,10 +851,9 @@ The dead ends (all opt-in dev flags, absent from normal launch — kept for refe
   on the tested product `0x0315`);
 - `--direct-ptt` — the driver's hidden Feature report `0x99` (the tested remote returns `kIOReturnError`).
 
-An earlier native **DriverKit** proof of concept in [`driverkit/`](driverkit/README.md) builds and
-development-signs, but a real host launch is killed by AMFI before `main` (`Code=-413`,
-`No matching profile found`): a Personal development team cannot issue the required DriverKit HID
-capabilities. It is superseded by `mic/` and kept only for reference.
+An earlier native **DriverKit** proof of concept is archived under
+[`deprecated/driverkit/`](deprecated/driverkit/README.md). It was superseded by `mic/` and is not
+part of the active development or build path.
 
 Development invariant: a diagnostic instance temporarily replaces the normal app; it does not run
 alongside it. After every diagnostic, stop the flagged process and restore exactly one no-argument
