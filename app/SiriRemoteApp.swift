@@ -2111,6 +2111,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // termination. Anything system-visible has to be undone on this thread, now.
         remoteInputHandler?.setRemoteDevice(nil)
         remoteInputHandler?.endStickyDrag()
+        // Device teardown closes any live held shortcut first. Corpus writes are normally
+        // asynchronous, so explicitly drain them before the process can disappear.
+        voiceCorpusRecorder?.flushForTermination()
 
         // Flush a debounced tune write instead of letting it die with the process. config.jsonc is
         // the single source of truth and tuning re-seeds from it at launch, so a slider moved within
