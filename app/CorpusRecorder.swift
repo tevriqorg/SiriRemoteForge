@@ -10,6 +10,7 @@
 
 import AppKit
 import ApplicationServices
+import Carbon
 import Foundation
 
 final class VoiceCorpusRecorder {
