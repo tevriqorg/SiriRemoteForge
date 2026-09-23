@@ -225,8 +225,12 @@ CODESIGN_KEYCHAIN_ARGS=()
 
 if [ "$SIGN_MODE" = "developer" ]; then
     if [ -z "$SIGN_ID" ]; then
-        mapfile -t DEV_IDENTITIES < <(
-            security find-identity -v -p codesigning 2>/dev/null                 | sed -n 's/^[[:space:]]*[0-9][0-9]*) [0-9A-F]* "\(Apple Development:.*\)"$/\1/p'
+        DEV_IDENTITIES=()
+        while IFS= read -r identity; do
+            [ -n "$identity" ] && DEV_IDENTITIES+=("$identity")
+        done < <(
+            security find-identity -v -p codesigning 2>/dev/null \
+                | sed -n 's/^[[:space:]]*[0-9][0-9]*) [0-9A-F]* "\(Apple Development:.*\)"$/\1/p'
         )
         if [ "${#DEV_IDENTITIES[@]}" -eq 0 ]; then
             echo "Error: no valid Apple Development signing identity was found."
@@ -242,7 +246,8 @@ if [ "$SIGN_MODE" = "developer" ]; then
         SIGN_ID="${DEV_IDENTITIES[0]}"
     fi
 
-    if ! security find-identity -v -p codesigning 2>/dev/null         | grep -Fq "\"$SIGN_ID\""; then
+    if ! security find-identity -v -p codesigning 2>/dev/null \
+        | grep -Fq "\"$SIGN_ID\""; then
         echo "Error: requested signing identity is not currently valid: $SIGN_ID"
         exit 1
     fi
