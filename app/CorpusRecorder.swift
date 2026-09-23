@@ -13,6 +13,147 @@ import ApplicationServices
 import Carbon
 import Foundation
 
+private final class VoiceCorpusWAVSpool {
+    struct Finalization {
+        let status: String
+        let storedFrameCount: Int
+    }
+
+    private let lock = NSLock()
+    private var handle: FileHandle?
+    private var url: URL?
+    private var bufferedBeforeConfigure: [Data] = []
+    private var pcmBytesWritten = 0
+    private var writeError: Error?
+    private var finalized = false
+
+    /// Capture starts before filesystem setup so the physical press edge remains authoritative.
+    /// Chunks arriving in that brief gap are kept only until configure() installs the file handle.
+    func configure(at url: URL) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard self.url == nil, !finalized else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+
+        let header = Self.wavHeader(sampleRate: VoiceAudioCaptureSession.outputSampleRate, pcmBytes: 0)
+        guard FileManager.default.createFile(atPath: url.path, contents: header) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o600))],
+            ofItemAtPath: url.path
+        )
+
+        do {
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.seekToEnd()
+            self.handle = handle
+            self.url = url
+            for chunk in bufferedBeforeConfigure {
+                try handle.write(contentsOf: chunk)
+                pcmBytesWritten += chunk.count
+            }
+            bufferedBeforeConfigure.removeAll(keepingCapacity: false)
+        } catch {
+            try? self.handle?.close()
+            self.handle = nil
+            self.url = nil
+            bufferedBeforeConfigure.removeAll(keepingCapacity: false)
+            throw error
+        }
+    }
+
+    func append(_ chunk: Data) {
+        guard !chunk.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard !finalized, writeError == nil else { return }
+
+        guard let handle else {
+            bufferedBeforeConfigure.append(chunk)
+            return
+        }
+        do {
+            try handle.write(contentsOf: chunk)
+            pcmBytesWritten += chunk.count
+        } catch {
+            writeError = error
+        }
+    }
+
+    func finalize(sampleRate: Int, expectedFrameCount: Int) -> Finalization {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if finalized {
+            let frames = pcmBytesWritten / MemoryLayout<Int16>.size
+            let complete = writeError == nil && frames == expectedFrameCount
+            return Finalization(status: complete ? "complete" : "incomplete",
+                                storedFrameCount: frames)
+        }
+        finalized = true
+
+        if handle == nil, !bufferedBeforeConfigure.isEmpty {
+            writeError = writeError ?? CocoaError(.fileWriteUnknown)
+            bufferedBeforeConfigure.removeAll(keepingCapacity: false)
+        }
+
+        if let handle {
+            do {
+                try handle.seek(toOffset: 0)
+                try handle.write(contentsOf: Self.wavHeader(
+                    sampleRate: sampleRate,
+                    pcmBytes: pcmBytesWritten
+                ))
+                try handle.synchronize()
+                try handle.close()
+            } catch {
+                writeError = writeError ?? error
+                try? handle.close()
+            }
+            self.handle = nil
+        } else if url == nil {
+            writeError = writeError ?? CocoaError(.fileWriteUnknown)
+        }
+
+        let storedFrames = pcmBytesWritten / MemoryLayout<Int16>.size
+        let complete = writeError == nil && storedFrames == expectedFrameCount
+        return Finalization(
+            status: complete ? "complete" : "incomplete",
+            storedFrameCount: storedFrames
+        )
+    }
+
+    private static func wavHeader(sampleRate: Int, pcmBytes: Int) -> Data {
+        let safePCMBytes = max(0, min(pcmBytes, Int(UInt32.max) - 36))
+        var data = Data()
+        appendASCII("RIFF", to: &data)
+        appendLE(UInt32(36 + safePCMBytes), to: &data)
+        appendASCII("WAVE", to: &data)
+        appendASCII("fmt ", to: &data)
+        appendLE(UInt32(16), to: &data)
+        appendLE(UInt16(1), to: &data)
+        appendLE(UInt16(1), to: &data)
+        appendLE(UInt32(sampleRate), to: &data)
+        appendLE(UInt32(sampleRate * 2), to: &data)
+        appendLE(UInt16(2), to: &data)
+        appendLE(UInt16(16), to: &data)
+        appendASCII("data", to: &data)
+        appendLE(UInt32(safePCMBytes), to: &data)
+        return data
+    }
+
+    private static func appendASCII(_ string: String, to data: inout Data) {
+        if let bytes = string.data(using: .ascii) { data.append(bytes) }
+    }
+
+    private static func appendLE<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
+        var little = value.littleEndian
+        withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
+    }
+}
+
 final class VoiceCorpusRecorder {
     private final class Session {
         let id: UUID
@@ -26,6 +167,7 @@ final class VoiceCorpusRecorder {
         let applicationPID: pid_t?
         let clipboardBaselineChangeCount: Int
         let capture: VoiceAudioCaptureSession
+        let audioSpool: VoiceCorpusWAVSpool
         var textTarget: VoiceTextTarget?
         var endedAt: Date?
         var clipboardCaptured = false
@@ -36,7 +178,8 @@ final class VoiceCorpusRecorder {
         init(id: UUID, startedAt: Date, directoryURL: URL,
              actionKey: String, actionKind: String, shortcutKeys: String,
              applicationName: String?, bundleIdentifier: String?, applicationPID: pid_t?,
-             clipboardBaselineChangeCount: Int, capture: VoiceAudioCaptureSession) {
+             clipboardBaselineChangeCount: Int, capture: VoiceAudioCaptureSession,
+             audioSpool: VoiceCorpusWAVSpool) {
             self.id = id
             self.startedAt = startedAt
             self.directoryURL = directoryURL
@@ -48,6 +191,7 @@ final class VoiceCorpusRecorder {
             self.applicationPID = applicationPID
             self.clipboardBaselineChangeCount = clipboardBaselineChangeCount
             self.capture = capture
+            self.audioSpool = audioSpool
         }
     }
 
@@ -63,6 +207,8 @@ final class VoiceCorpusRecorder {
         let bundleIdentifier: String?
         let audioFile: String
         let audioSource: String
+        let audioStorageStatus: String
+        let audioStoredFrameCount: Int
         let sampleRate: Int
         let frameCount: Int
         let durationSeconds: Double
@@ -79,6 +225,8 @@ final class VoiceCorpusRecorder {
             case bundleIdentifier = "bundle_identifier"
             case audioFile = "audio_file"
             case audioSource = "audio_source"
+            case audioStorageStatus = "audio_storage_status"
+            case audioStoredFrameCount = "audio_stored_frame_count"
             case sampleRate = "sample_rate"
             case frameCount = "frame_count"
             case durationSeconds = "duration_seconds"
@@ -173,20 +321,25 @@ final class VoiceCorpusRecorder {
 
         // Start capture before directory creation/AX work so first-use filesystem latency cannot
         // move the raw audio boundary farther away from the physical F10 down edge.
+        let audioSpool = VoiceCorpusWAVSpool()
         let capture = VoiceAudioCaptureSession(
             minimumDuration: 0,
             maxDuration: 3_600,
             onMinimumDurationReached: {},
-            onMaximumDuration: { rmDebug("🗂 corpus: one-hour emergency safety cap reached") }
+            onMaximumDuration: { rmDebug("🗂 corpus: one-hour emergency safety cap reached") },
+            retainPCM: false,
+            streamChunks: false,
+            onPCMChunk: { [weak audioSpool] chunk in audioSpool?.append(chunk) }
         )
         capture.start()
 
         let directoryURL = sampleDirectory(id: id, date: startedAt)
         do {
             try prepareDirectory(directoryURL)
+            try audioSpool.configure(at: directoryURL.appendingPathComponent("audio.wav"))
         } catch {
             Task { _ = await capture.stop() }
-            rmDebug("🗂 corpus: cannot create sample directory: \(error.localizedDescription)")
+            rmDebug("🗂 corpus: cannot prepare streamed sample: \(error.localizedDescription)")
             return
         }
 
@@ -204,7 +357,8 @@ final class VoiceCorpusRecorder {
             bundleIdentifier: app?.bundleIdentifier,
             applicationPID: app?.processIdentifier,
             clipboardBaselineChangeCount: pasteboard.changeCount,
-            capture: capture
+            capture: capture,
+            audioSpool: audioSpool
         )
         active = session
 
@@ -254,7 +408,16 @@ final class VoiceCorpusRecorder {
             let audio = await session.capture.stop()
             guard let self else { return }
             self.ioQueue.async {
-                self.persistCapture(session: session, endedAt: endedAt, audio: audio)
+                let storage = session.audioSpool.finalize(
+                    sampleRate: audio.sampleRate,
+                    expectedFrameCount: audio.frameCount
+                )
+                self.persistCapture(
+                    session: session,
+                    endedAt: endedAt,
+                    audio: audio,
+                    storage: storage
+                )
             }
         }
     }
@@ -290,13 +453,14 @@ final class VoiceCorpusRecorder {
         }
     }
 
-    private func persistCapture(session: Session, endedAt: Date, audio: VoiceCapturedAudio) {
+    private func persistCapture(
+        session: Session,
+        endedAt: Date,
+        audio: VoiceCapturedAudio,
+        storage: VoiceCorpusWAVSpool.Finalization
+    ) {
         do {
-            let wavURL = session.directoryURL.appendingPathComponent("audio.wav")
             let recordURL = session.directoryURL.appendingPathComponent("capture.json")
-            try Self.wavData(audio).write(to: wavURL, options: .atomic)
-            try secureFile(wavURL)
-
             let record = CaptureRecord(
                 version: 1,
                 id: session.id,
@@ -309,6 +473,8 @@ final class VoiceCorpusRecorder {
                 bundleIdentifier: session.bundleIdentifier,
                 audioFile: "audio.wav",
                 audioSource: audio.source.rawValue,
+                audioStorageStatus: storage.status,
+                audioStoredFrameCount: storage.storedFrameCount,
                 sampleRate: audio.sampleRate,
                 frameCount: audio.frameCount,
                 durationSeconds: audio.duration,
@@ -320,9 +486,10 @@ final class VoiceCorpusRecorder {
             try encoder.encode(record).write(to: recordURL, options: .atomic)
             try secureFile(recordURL)
             rmDebug("🗂 corpus: saved id=\(session.id.uuidString) "
-                    + "source=\(audio.source.rawValue) duration=\(String(format: "%.2f", audio.duration))s")
+                    + "source=\(audio.source.rawValue) duration=\(String(format: "%.2f", audio.duration))s "
+                    + "storage=\(storage.status) frames=\(storage.storedFrameCount)/\(audio.frameCount)")
         } catch {
-            rmDebug("🗂 corpus: save failed id=\(session.id.uuidString): "
+            rmDebug("🗂 corpus: metadata save failed id=\(session.id.uuidString): "
                     + error.localizedDescription)
         }
     }
@@ -502,7 +669,11 @@ final class VoiceCorpusRecorder {
             session.endedAt = endedAt
             let audio = session.capture.stopBlockingForTermination()
             ioQueue.sync {
-                persistCapture(session: session, endedAt: endedAt, audio: audio)
+                let storage = session.audioSpool.finalize(
+                    sampleRate: audio.sampleRate,
+                    expectedFrameCount: audio.frameCount
+                )
+                persistCapture(session: session, endedAt: endedAt, audio: audio, storage: storage)
                 persistObservation(
                     makeAttemptObservation(session, textStatus: "interrupted_by_app_termination"),
                     for: session
@@ -513,9 +684,13 @@ final class VoiceCorpusRecorder {
             let endedAt = session.endedAt ?? Date()
             let audio = session.capture.stopBlockingForTermination()
             ioQueue.sync {
-                // This may repeat an already-completed async write; both writes use the same
-                // physical attempt/timestamp and atomic replacement, so the duplicate is harmless.
-                persistCapture(session: session, endedAt: endedAt, audio: audio)
+                let storage = session.audioSpool.finalize(
+                    sampleRate: audio.sampleRate,
+                    expectedFrameCount: audio.frameCount
+                )
+                // This may repeat already-completed metadata; spool finalization is idempotent and
+                // the JSON replacement is atomic.
+                persistCapture(session: session, endedAt: endedAt, audio: audio, storage: storage)
                 let status = session.clipboardCaptured || session.accessibilityCaptured
                     ? "observed" : "interrupted_by_app_termination"
                 persistObservation(makeAttemptObservation(session, textStatus: status), for: session)
@@ -547,34 +722,6 @@ final class VoiceCorpusRecorder {
             [.posixPermissions: NSNumber(value: Int16(0o600))],
             ofItemAtPath: url.path
         )
-    }
-
-    private static func wavData(_ audio: VoiceCapturedAudio) -> Data {
-        var data = Data()
-        appendASCII("RIFF", to: &data)
-        appendLE(UInt32(36 + audio.pcm16.count), to: &data)
-        appendASCII("WAVE", to: &data)
-        appendASCII("fmt ", to: &data)
-        appendLE(UInt32(16), to: &data)             // PCM fmt chunk size
-        appendLE(UInt16(1), to: &data)              // PCM
-        appendLE(UInt16(1), to: &data)              // mono
-        appendLE(UInt32(audio.sampleRate), to: &data)
-        appendLE(UInt32(audio.sampleRate * 2), to: &data) // 16-bit mono bytes/sec
-        appendLE(UInt16(2), to: &data)              // block align
-        appendLE(UInt16(16), to: &data)             // bits/sample
-        appendASCII("data", to: &data)
-        appendLE(UInt32(audio.pcm16.count), to: &data)
-        data.append(audio.pcm16)
-        return data
-    }
-
-    private static func appendASCII(_ string: String, to data: inout Data) {
-        data.append(string.data(using: .ascii)!)
-    }
-
-    private static func appendLE<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
-        var little = value.littleEndian
-        withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
     }
 
     private static let dayFormatter: DateFormatter = {
