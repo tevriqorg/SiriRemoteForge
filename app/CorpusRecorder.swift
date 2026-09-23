@@ -161,42 +161,37 @@ final class VoiceCorpusRecorder {
         }
         guard let action = Self.externalVoiceAction(handled.action) else { return }
 
-        let id = UUID()
-        let startedAt = Date()
-        let directoryURL = sampleDirectory(id: id, date: startedAt)
-        do {
-            try prepareDirectory(directoryURL)
-        } catch {
-            rmDebug("🗂 corpus: cannot create sample directory: \(error.localizedDescription)")
-            return
-        }
-
-        // A new physical utterance owns text attribution from this point forward. Finalize any
-        // previous released utterance before invalidating its watcher: missing text is a normal raw
-        // outcome, and it is safer to mark it interrupted than to risk attaching this utterance's
-        // delayed IME text to the previous audio.
-        if let previous = pendingObservation {
-            finalizeObservation(
-                previous,
-                textStatus: previous.clipboardCaptured || previous.accessibilityCaptured
-                    ? "observed" : "interrupted_by_next_attempt"
-            )
-            pendingObservation = nil
-        }
+        // Attribution ownership changes on the physical attempt edge, not after filesystem setup.
+        // This must happen even if the new sample later cannot be persisted.
+        invalidatePendingObservationForNewAttempt()
 
         let app = NSWorkspace.shared.frontmostApplication
         let pasteboard = NSPasteboard.general
-        clipboardWatchGeneration &+= 1
 
-        // Corpus recording intentionally has no speech/silence/short-press gate. The physical
-        // button defines the raw sample boundary. One hour is only an emergency stuck-session cap;
-        // silence, thinking pauses and very short holds are preserved for later analysis.
+        // Start capture before directory creation/AX work so first-use filesystem latency cannot
+        // move the raw audio boundary farther away from the physical F10 down edge.
         let capture = VoiceAudioCaptureSession(
             minimumDuration: 0,
             maxDuration: 3_600,
             onMinimumDurationReached: {},
             onMaximumDuration: { rmDebug("🗂 corpus: one-hour emergency safety cap reached") }
         )
+        capture.start()
+
+        let id = UUID()
+        let startedAt = Date()
+        let directoryURL = sampleDirectory(id: id, date: startedAt)
+        do {
+            try prepareDirectory(directoryURL)
+        } catch {
+            Task { _ = await capture.stop() }
+            rmDebug("🗂 corpus: cannot create sample directory: \(error.localizedDescription)")
+            return
+        }
+
+        // Corpus recording intentionally has no speech/silence/short-press gate. The physical
+        // button defines the raw sample boundary. One hour is only an emergency stuck-session cap;
+        // silence, thinking pauses and very short holds are preserved for later analysis.
         let session = Session(
             id: id,
             startedAt: startedAt,
@@ -211,7 +206,6 @@ final class VoiceCorpusRecorder {
             capture: capture
         )
         active = session
-        capture.start()
 
         // Audio is already running before this bounded AX query. Keep only the in-memory BEFORE
         // state needed to derive this utterance's inserted/replaced text; never persist the field's
@@ -226,6 +220,21 @@ final class VoiceCorpusRecorder {
             if !target.isSecure { session.textTarget = target }
         }
         rmDebug("🗂 corpus: began id=\(id.uuidString) key=\(handled.key)")
+    }
+
+    /// A newer physical external-voice attempt takes text-attribution ownership immediately,
+    /// even when Corpus has just been disabled or the new sample cannot be persisted. Missing text
+    /// on the older sample is safer than attaching the newer attempt's IME result to it.
+    func invalidatePendingObservationForNewAttempt() {
+        if let previous = pendingObservation {
+            finalizeObservation(
+                previous,
+                textStatus: previous.clipboardCaptured || previous.accessibilityCaptured
+                    ? "observed" : "interrupted_by_next_attempt"
+            )
+            pendingObservation = nil
+        }
+        clipboardWatchGeneration &+= 1
     }
 
     /// End the matching external voice sample. Audio persistence happens off the main thread.
