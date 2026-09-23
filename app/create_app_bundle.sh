@@ -10,7 +10,10 @@ BINARY_PATH="${HYPERVIBE_BINARY_PATH:-$APP_NAME}"
 APP_VERSION="${HYPERVIBE_VERSION:-1.0.0}"
 BUILD_NUMBER="${HYPERVIBE_BUILD_NUMBER:-1}"
 RELEASE_VERSION="${HYPERVIBE_RELEASE_VERSION:-${APP_VERSION}-local.${BUILD_NUMBER}}"
-SIGN_MODE="${HYPERVIBE_SIGN_MODE:-stable}"
+APP_BUNDLE_ID="${HYPERVIBE_BUNDLE_ID:-org.tevriq.siriremoteforge}"
+BROKER_BUNDLE_ID="${APP_BUNDLE_ID}.CredentialBroker"
+UPDATE_FEED_URL="${HYPERVIBE_UPDATE_FEED_URL:-https://raw.githubusercontent.com/tevriqorg/SiriRemoteForge/main/appcast.xml}"
+SIGN_MODE="${HYPERVIBE_SIGN_MODE:-developer}"
 SPARKLE_ROOT="$(./prepare_sparkle.sh)"
 
 if ! [[ "$APP_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
@@ -99,7 +102,7 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<EOF
 	<key>CFBundleExecutable</key>
 	<string>$APP_NAME</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.hypervibe.app</string>
+	<string>$APP_BUNDLE_ID</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -137,7 +140,7 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<EOF
 	<!-- Sparkle update policy. Runtime choices are mirrored from config.jsonc; these values provide
 	     secure first-launch defaults before that config has been migrated by the GUI. -->
 	<key>SUFeedURL</key>
-	<string>https://raw.githubusercontent.com/HOLODATA-COM/SiriRemoteForge/main/appcast.xml</string>
+	<string>$UPDATE_FEED_URL</string>
 	<key>SUPublicEDKey</key>
 	<string>soFRqtCkorMRWAPsLRxn3ZE7vaihfpjYFH+4kXmc/Hk=</string>
 	<key>SUEnableAutomaticChecks</key>
@@ -167,7 +170,7 @@ cat > "${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Contents
 	<key>CFBundleExecutable</key>
 	<string>HyperVibeCredentialBroker</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.hypervibe.app.CredentialBroker</string>
+	<string>$BROKER_BUNDLE_ID</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -208,35 +211,47 @@ chmod +x "${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Conte
 # but only matter under hardened runtime, so they're harmless here.
 [ -f "HyperVibe.entitlements" ] || { echo "Error: HyperVibe.entitlements not found"; exit 1; }
 
-# Development builds MUST use the stable self-signed identity so TCC grants (Accessibility /
-# Input Monitoring) survive rebuilds. Ad-hoc signing remains available only as an explicit public
-# release-build choice. There is deliberately no automatic fallback between the two modes.
-SIGN_ID="siriRemote Local Signing"
-SIGN_KC="$HOME/Library/Keychains/siriremote-signing.keychain-db"
+# Development builds belong to this fork and must use the developer's own Apple Development
+# identity. Never fall back silently to ad-hoc signing: changing the designated requirement changes
+# TCC/Keychain identity and would make permission failures look like App regressions.
+#
+# Selection order:
+#   1. exact HYPERVIBE_SIGN_ID supplied by the developer;
+#   2. exactly one valid "Apple Development:" identity in the default keychain search list.
+#
+# If several Apple Development identities exist, selection is intentionally explicit.
+SIGN_ID="${HYPERVIBE_SIGN_ID:-}"
 CODESIGN_KEYCHAIN_ARGS=()
-if [ "$SIGN_MODE" = "stable" ]; then
-    if [ ! -f "$SIGN_KC" ]; then
-        echo "Error: stable signing keychain not found: $SIGN_KC"
-        echo "Refusing to ad-hoc sign a development build because that would reset macOS permissions."
+
+if [ "$SIGN_MODE" = "developer" ]; then
+    if [ -z "$SIGN_ID" ]; then
+        mapfile -t DEV_IDENTITIES < <(
+            security find-identity -v -p codesigning 2>/dev/null                 | sed -n 's/^[[:space:]]*[0-9][0-9]*) [0-9A-F]* "\(Apple Development:.*\)"$/\1/p'
+        )
+        if [ "${#DEV_IDENTITIES[@]}" -eq 0 ]; then
+            echo "Error: no valid Apple Development signing identity was found."
+            echo "Install/select your Apple Development certificate, or set HYPERVIBE_SIGN_ID explicitly."
+            exit 1
+        fi
+        if [ "${#DEV_IDENTITIES[@]}" -ne 1 ]; then
+            echo "Error: multiple Apple Development signing identities are available:"
+            printf '  %s\n' "${DEV_IDENTITIES[@]}"
+            echo "Set HYPERVIBE_SIGN_ID to the exact identity you want to use."
+            exit 1
+        fi
+        SIGN_ID="${DEV_IDENTITIES[0]}"
+    fi
+
+    if ! security find-identity -v -p codesigning 2>/dev/null         | grep -Fq "\"$SIGN_ID\""; then
+        echo "Error: requested signing identity is not currently valid: $SIGN_ID"
         exit 1
     fi
-    if ! security find-certificate -c "$SIGN_ID" "$SIGN_KC" >/dev/null 2>&1; then
-        echo "Error: stable signing certificate '$SIGN_ID' is unavailable."
-        echo "Refusing to ad-hoc sign a development build because that would reset macOS permissions."
-        exit 1
-    fi
-    # Never put a keychain password in argv: process inspection and build logs must not expose it.
-    # Unlock the dedicated keychain through Keychain Access / Security.framework's native secure
-    # prompt before a non-interactive build. `security find-identity` incorrectly reports zero for
-    # this self-signed identity on current macOS even when its private key is usable, so the named
-    # certificate check above plus the real `codesign` operations below are the authoritative gate.
-    CODESIGN_KEYCHAIN_ARGS=(--keychain "$SIGN_KC")
-    echo "Signing with stable local identity ($SIGN_ID)..."
+    echo "Signing development build with: $SIGN_ID"
 elif [ "$SIGN_MODE" = "adhoc" ]; then
     SIGN_ID="-"
-    echo "Ad-hoc signing (explicit public/release build)..."
+    echo "Ad-hoc signing (explicit public/release artifact only)..."
 else
-    echo "Error: HYPERVIBE_SIGN_MODE must be 'stable' or 'adhoc', got: $SIGN_MODE"
+    echo "Error: HYPERVIBE_SIGN_MODE must be 'developer' or 'adhoc', got: $SIGN_MODE"
     exit 1
 fi
 
