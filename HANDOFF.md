@@ -39,6 +39,10 @@ belong in `docs/mic-reverse-engineering.md`.
 
 ### ⚡ LATEST — 2026-09-22: external Voice Corpus capture (phase 2, branch only)
 
+- Canonical Raw schema/invariants for this feature are documented in
+  `docs/voice-corpus.md`. Future nightly ASR/alignment/dataset work should extend that pipeline
+  without rewriting Raw capture facts.
+
 - The same working branch now adds an optional **Voice Corpus** recorder for the user's external
   side-button workflow. It is deliberately independent from Native Voice/cloud transcription and is
   **off by default** because enabling it persistently stores microphone audio and observed IME text.
