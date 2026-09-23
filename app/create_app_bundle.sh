@@ -336,37 +336,102 @@ chmod +x "${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Conte
 #
 # If several Apple Development identities exist, selection is intentionally explicit.
 SIGN_ID="${HYPERVIBE_SIGN_ID:-}"
+SIGN_LABEL=""
 CODESIGN_KEYCHAIN_ARGS=()
 
 if [ "$SIGN_MODE" = "developer" ]; then
-    if [ -z "$SIGN_ID" ]; then
-        DEV_IDENTITIES=()
-        while IFS= read -r identity; do
-            [ -n "$identity" ] && DEV_IDENTITIES+=("$identity")
-        done < <(
-            security find-identity -v -p codesigning 2>/dev/null \
-                | sed -n 's/^[[:space:]]*[0-9][0-9]*) [0-9A-Fa-f]* "\(Apple Development:.*\)"$/\1/p'
-        )
-        if [ "${#DEV_IDENTITIES[@]}" -eq 0 ]; then
-            echo "Error: no valid Apple Development signing identity was found."
-            echo "Install/select your Apple Development certificate, or set HYPERVIBE_SIGN_ID explicitly."
-            exit 1
-        fi
-        if [ "${#DEV_IDENTITIES[@]}" -ne 1 ]; then
-            echo "Error: multiple Apple Development signing identities are available:"
-            printf '  %s\n' "${DEV_IDENTITIES[@]}"
-            echo "Set HYPERVIBE_SIGN_ID to the exact identity you want to use."
-            exit 1
-        fi
-        SIGN_ID="${DEV_IDENTITIES[0]}"
-    fi
+    DEV_IDENTITY_HASHES=()
+    DEV_IDENTITY_LABELS=()
+    while IFS=
+    SIGN_ID="-"
+    echo "Ad-hoc signing (explicit public/release artifact only)..."
+else
+    echo "Error: HYPERVIBE_SIGN_MODE must be 'developer' or 'adhoc', got: $SIGN_MODE"
+    exit 1
+fi
 
-    if ! security find-identity -v -p codesigning 2>/dev/null \
-        | grep -Fq "\"$SIGN_ID\""; then
-        echo "Error: requested signing identity is not currently valid: $SIGN_ID"
+# Sparkle's helpers retain hardened runtime even though HyperVibe itself cannot use it. Sign from
+# the deepest nested code outward; --deep is verification-only and is never used to construct a
+# signature because it can hide a malformed framework bundle.
+SPARKLE_B="${APP_BUNDLE}/Contents/Frameworks/Sparkle.framework/Versions/B"
+CREDENTIAL_XPC="${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc"
+codesign --force --sign "$SIGN_ID" "${CODESIGN_KEYCHAIN_ARGS[@]}" \
+    "$CREDENTIAL_XPC"
+codesign --force --options runtime --sign "$SIGN_ID" "${CODESIGN_KEYCHAIN_ARGS[@]}" \
+    "$SPARKLE_B/XPCServices/Installer.xpc"
+codesign --force --options runtime --preserve-metadata=entitlements \
+    --sign "$SIGN_ID" "${CODESIGN_KEYCHAIN_ARGS[@]}" \
+    "$SPARKLE_B/XPCServices/Downloader.xpc"
+codesign --force --options runtime --sign "$SIGN_ID" "${CODESIGN_KEYCHAIN_ARGS[@]}" \
+    "$SPARKLE_B/Autoupdate"
+codesign --force --options runtime --sign "$SIGN_ID" "${CODESIGN_KEYCHAIN_ARGS[@]}" \
+    "$SPARKLE_B/Updater.app"
+codesign --force --options runtime --sign "$SIGN_ID" "${CODESIGN_KEYCHAIN_ARGS[@]}" \
+    "${APP_BUNDLE}/Contents/Frameworks/Sparkle.framework"
+
+if ! codesign --force --entitlements "HyperVibe.entitlements" \
+    --sign "$SIGN_ID" "${CODESIGN_KEYCHAIN_ARGS[@]}" "${APP_BUNDLE}"; then
+    echo "Error: app signing failed. The existing installed App was not touched."
+    exit 1
+fi
+codesign --verify --deep --strict --verbose=2 "${APP_BUNDLE}"
+codesign -dvv "${APP_BUNDLE}" 2>&1 | grep -E "(Authority|flags|Identifier)" || true
+
+echo ""
+echo "✓ App bundle created: $APP_BUNDLE"
+echo ""
+echo "Development candidate is staged and signed."
+echo "Do NOT launch it while the installed stable HyperVibe is running."
+echo "Verify first:"
+echo "  codesign --verify --deep --strict --verbose=2 \"$APP_BUNDLE\""
+echo ""
+echo "A real-device test is a separate promotion step: back up the installed stable App,"
+echo "stop it, install this candidate at /Applications/HyperVibe.app, then grant/re-check"
+echo "Accessibility, Input Monitoring and Microphone permissions for the new code identity."
+\t' read -r identity_hash identity_label; do
+        [ -n "$identity_hash" ] || continue
+        DEV_IDENTITY_HASHES+=("$identity_hash")
+        DEV_IDENTITY_LABELS+=("$identity_label")
+    done < <(
+        security find-identity -v -p codesigning 2>/dev/null \
+            | sed -n 's/^[[:space:]]*[0-9][0-9]*) \([0-9A-Fa-f]*\) "\(Apple Development:.*\)"$/\1\	\2/p'
+    )
+
+    if [ "${#DEV_IDENTITY_HASHES[@]}" -eq 0 ]; then
+        echo "Error: no valid Apple Development signing identity was found."
         exit 1
     fi
-    echo "Signing development build with: $SIGN_ID"
+
+    if [ -z "$SIGN_ID" ]; then
+        if [ "${#DEV_IDENTITY_HASHES[@]}" -ne 1 ]; then
+            echo "Error: multiple Apple Development signing identities are available:"
+            for i in "${!DEV_IDENTITY_HASHES[@]}"; do
+                printf '  %s  %s\n' "${DEV_IDENTITY_HASHES[$i]}" "${DEV_IDENTITY_LABELS[$i]}"
+            done
+            echo "Set HYPERVIBE_SIGN_ID to the exact certificate hash or full identity label."
+            exit 1
+        fi
+        SIGN_ID="${DEV_IDENTITY_HASHES[0]}"
+        SIGN_LABEL="${DEV_IDENTITY_LABELS[0]}"
+    else
+        MATCH_HASHES=()
+        MATCH_LABELS=()
+        for i in "${!DEV_IDENTITY_HASHES[@]}"; do
+            if [ "$SIGN_ID" = "${DEV_IDENTITY_HASHES[$i]}" ] \
+                || [ "$SIGN_ID" = "${DEV_IDENTITY_LABELS[$i]}" ]; then
+                MATCH_HASHES+=("${DEV_IDENTITY_HASHES[$i]}")
+                MATCH_LABELS+=("${DEV_IDENTITY_LABELS[$i]}")
+            fi
+        done
+        if [ "${#MATCH_HASHES[@]}" -ne 1 ]; then
+            echo "Error: HYPERVIBE_SIGN_ID must resolve to exactly one valid Apple Development identity."
+            exit 1
+        fi
+        SIGN_ID="${MATCH_HASHES[0]}"
+        SIGN_LABEL="${MATCH_LABELS[0]}"
+    fi
+
+    echo "Signing development build with: $SIGN_LABEL [$SIGN_ID]"
 elif [ "$SIGN_MODE" = "adhoc" ]; then
     SIGN_ID="-"
     echo "Ad-hoc signing (explicit public/release artifact only)..."
