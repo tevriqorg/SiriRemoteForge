@@ -12,9 +12,25 @@ BUILD_NUMBER="${HYPERVIBE_BUILD_NUMBER:-1}"
 RELEASE_VERSION="${HYPERVIBE_RELEASE_VERSION:-${APP_VERSION}-local.${BUILD_NUMBER}}"
 APP_BUNDLE_ID="${HYPERVIBE_BUNDLE_ID:-org.tevriq.siriremoteforge}"
 BROKER_BUNDLE_ID="${APP_BUNDLE_ID}.CredentialBroker"
-UPDATE_FEED_URL="${HYPERVIBE_UPDATE_FEED_URL:-https://raw.githubusercontent.com/tevriqorg/SiriRemoteForge/main/appcast.xml}"
+UPDATE_FEED_URL="${HYPERVIBE_UPDATE_FEED_URL:-}"
+UPDATE_PUBLIC_KEY="${HYPERVIBE_UPDATE_PUBLIC_KEY:-}"
 SIGN_MODE="${HYPERVIBE_SIGN_MODE:-developer}"
 SPARKLE_ROOT="$(./prepare_sparkle.sh)"
+
+IS_LOCAL_BUILD=false
+case "$RELEASE_VERSION" in
+    *-local.*) IS_LOCAL_BUILD=true ;;
+esac
+
+if { [ -n "$UPDATE_FEED_URL" ] && [ -z "$UPDATE_PUBLIC_KEY" ]; } \
+   || { [ -z "$UPDATE_FEED_URL" ] && [ -n "$UPDATE_PUBLIC_KEY" ]; }; then
+    echo "Error: HYPERVIBE_UPDATE_FEED_URL and HYPERVIBE_UPDATE_PUBLIC_KEY must be supplied together."
+    exit 1
+fi
+if [ "$IS_LOCAL_BUILD" = false ] && { [ -z "$UPDATE_FEED_URL" ] || [ -z "$UPDATE_PUBLIC_KEY" ]; }; then
+    echo "Error: non-local builds require an explicit fork-owned Sparkle feed URL and public key."
+    exit 1
+fi
 
 if ! [[ "$APP_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
     echo "Error: HYPERVIBE_VERSION must be numeric (for example 0.1.0), got: $APP_VERSION"
@@ -163,10 +179,6 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<EOF
 	<string>HyperVibe uses your selected microphone for push-to-talk dictation, transcription, and its live waveform.</string>
 	<!-- Sparkle update policy. Runtime choices are mirrored from config.jsonc; these values provide
 	     secure first-launch defaults before that config has been migrated by the GUI. -->
-	<key>SUFeedURL</key>
-	<string>$UPDATE_FEED_URL</string>
-	<key>SUPublicEDKey</key>
-	<string>soFRqtCkorMRWAPsLRxn3ZE7vaihfpjYFH+4kXmc/Hk=</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUAllowsAutomaticUpdates</key>
@@ -180,6 +192,21 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<EOF
 </dict>
 </plist>
 EOF
+
+if [ -n "$UPDATE_FEED_URL" ]; then
+    /usr/libexec/PlistBuddy -c "Add :SUFeedURL string $UPDATE_FEED_URL" \
+        "${APP_BUNDLE}/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $UPDATE_PUBLIC_KEY" \
+        "${APP_BUNDLE}/Contents/Info.plist"
+fi
+if [ "$IS_LOCAL_BUILD" = true ]; then
+    /usr/libexec/PlistBuddy -c "Set :SUEnableAutomaticChecks false" \
+        "${APP_BUNDLE}/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :SUAllowsAutomaticUpdates false" \
+        "${APP_BUNDLE}/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :SUAutomaticallyUpdate false" \
+        "${APP_BUNDLE}/Contents/Info.plist"
+fi
 
 # Keep this embedded service byte-for-byte and metadata-stable across UI releases. The login
 # keychain grants its CDHash access once, while the broker mutually authenticates the containing
