@@ -22,8 +22,10 @@ final class UpdateManager: NSObject, SPUUpdaterDelegate, SPUStandardUserDriverDe
             forInfoDictionaryKey: "HyperVibeReleaseVersion"
         ) as? String,
         !release.contains("-local."),
-        Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String != nil,
-        Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String != nil
+        let feedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String,
+        !feedURL.isEmpty,
+        let publicKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
+        !publicKey.isEmpty
         else { return false }
         return true
     }()
