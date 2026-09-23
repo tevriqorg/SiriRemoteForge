@@ -44,6 +44,14 @@ if [ ! -f "HyperVibeCredentialBroker" ]; then
     exit 1
 fi
 
+case "$APP_BUNDLE" in
+    *.app) ;;
+    *)
+        echo "Error: HYPERVIBE_APP_BUNDLE_PATH must name a .app bundle: $APP_BUNDLE"
+        exit 1
+        ;;
+esac
+
 if [ "$SIGN_MODE" = "developer" ]; then
     case "$APP_BUNDLE" in
         /Applications|/Applications/*)
