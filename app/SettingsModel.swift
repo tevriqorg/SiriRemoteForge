@@ -41,6 +41,14 @@ final class SettingsModel: ObservableObject {
     /// macOS. Keep the requested JSON value intact while surfacing the real OS error in Settings.
     @Published var launchAtLoginError: String?
 
+    /// Local development candidates deliberately have no active Sparkle feed. Keeping this as a
+    /// computed build capability prevents Settings from presenting controls that can only no-op.
+    var softwareUpdatesAvailable: Bool {
+        let release = Bundle.main.object(forInfoDictionaryKey: "HyperVibeReleaseVersion")
+            as? String ?? ""
+        return !release.contains("-local.")
+    }
+
     /// Set only while a scheduled update waits gently in the background for user attention.
     @Published var availableUpdateVersion: String?
 
