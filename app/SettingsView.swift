@@ -1357,7 +1357,7 @@ struct SettingsView: View {
             Text(L("Software Updates"))
         } footer: {
             Text(model.softwareUpdatesAvailable
-                 ? L("Verified Full Setup updates download in the background. When automatic checks are disabled at launch, the Sparkle updater is not created. macOS asks for administrator approval only when an update installs system components.")
+                 ? L("Verified app updates can download in the background. When automatic checks are disabled at launch, the Sparkle updater is not created. Full Setup system-component updates remain a separate manual install.")
                  : L("Software updates are disabled in local development builds. A fork-owned feed and public key are required before release builds can enable Sparkle."))
                 .font(.system(size: 11))
         }
