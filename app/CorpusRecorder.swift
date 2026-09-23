@@ -339,6 +339,7 @@ final class VoiceCorpusRecorder {
             try audioSpool.configure(at: directoryURL.appendingPathComponent("audio.wav"))
         } catch {
             Task { _ = await capture.stop() }
+            try? fileManager.removeItem(at: directoryURL)
             rmDebug("🗂 corpus: cannot prepare streamed sample: \(error.localizedDescription)")
             return
         }
