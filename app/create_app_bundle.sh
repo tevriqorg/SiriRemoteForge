@@ -243,6 +243,43 @@ cat > "${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Contents
 </plist>
 EOF
 
+APP_PLIST="${APP_BUNDLE}/Contents/Info.plist"
+BROKER_PLIST="${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Contents/Info.plist"
+/usr/bin/plutil -lint "$APP_PLIST" "$BROKER_PLIST" >/dev/null
+
+[ "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$APP_PLIST")" = "$APP_BUNDLE_ID" ] || {
+    echo "Error: generated App bundle identifier does not match $APP_BUNDLE_ID"
+    exit 1
+}
+[ "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$BROKER_PLIST")" = "$BROKER_BUNDLE_ID" ] || {
+    echo "Error: generated Credential Broker identifier does not match $BROKER_BUNDLE_ID"
+    exit 1
+}
+
+if [ "$IS_LOCAL_BUILD" = true ]; then
+    for forbidden in SUFeedURL SUPublicEDKey; do
+        if /usr/bin/plutil -extract "$forbidden" raw -o - "$APP_PLIST" >/dev/null 2>&1; then
+            echo "Error: local development bundle unexpectedly contains $forbidden"
+            exit 1
+        fi
+    done
+    for key in SUEnableAutomaticChecks SUAllowsAutomaticUpdates SUAutomaticallyUpdate; do
+        [ "$(/usr/bin/plutil -extract "$key" raw -o - "$APP_PLIST")" = "false" ] || {
+            echo "Error: local development bundle must set $key=false"
+            exit 1
+        }
+    done
+else
+    [ "$(/usr/bin/plutil -extract SUFeedURL raw -o - "$APP_PLIST")" = "$UPDATE_FEED_URL" ] || {
+        echo "Error: generated release feed URL does not match HYPERVIBE_UPDATE_FEED_URL"
+        exit 1
+    }
+    [ "$(/usr/bin/plutil -extract SUPublicEDKey raw -o - "$APP_PLIST")" = "$UPDATE_PUBLIC_KEY" ] || {
+        echo "Error: generated release public key does not match HYPERVIBE_UPDATE_PUBLIC_KEY"
+        exit 1
+    }
+fi
+
 # Keep the license with every binary distribution, including the app-only Release asset.
 if [ -f "../LICENSE" ]; then
     cp "../LICENSE" "${APP_BUNDLE}/Contents/Resources/LICENSE.txt"
