@@ -1328,10 +1328,12 @@ struct SettingsView: View {
             Toggle(isOn: $model.tune.automaticUpdateChecksEnabled) {
                 rowLabel(L("Automatically check for updates"), "arrow.triangle.2.circlepath")
             }
+            .disabled(!model.softwareUpdatesAvailable)
             Toggle(isOn: $model.tune.automaticallyDownloadUpdatesEnabled) {
                 rowLabel(L("Automatically download updates"), "arrow.down.circle")
             }
-            .disabled(!model.tune.automaticUpdateChecksEnabled)
+            .disabled(!model.softwareUpdatesAvailable
+                      || !model.tune.automaticUpdateChecksEnabled)
             Button {
                 model.onCheckForUpdates?()
             } label: {
@@ -1349,11 +1351,14 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(!model.softwareUpdatesAvailable)
             .tint(model.availableUpdateVersion == nil ? .accentColor : .green)
         } header: {
             Text(L("Software Updates"))
         } footer: {
-            Text(L("Verified Full Setup updates download in the background. When automatic checks are disabled at launch, the Sparkle updater is not created; a manual check creates it on demand. macOS asks for administrator approval only when an update installs system components."))
+            Text(model.softwareUpdatesAvailable
+                 ? L("Verified Full Setup updates download in the background. When automatic checks are disabled at launch, the Sparkle updater is not created. macOS asks for administrator approval only when an update installs system components.")
+                 : L("Software updates are disabled in local development builds. A fork-owned feed and public key are required before release builds can enable Sparkle."))
                 .font(.system(size: 11))
         }
     }
