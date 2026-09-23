@@ -187,6 +187,7 @@ final class VoiceCorpusRecorder {
         var frontmostAppChangedDuringObservation = false
         var focusTargetChangedDuringObservation = false
         var secureInputSeenDuringObservation = false
+        var axProbeInFlight = false
 
         init(id: UUID, startedAt: Date, directoryURL: URL,
              actionKey: String, actionKind: String, shortcutKeys: String,
@@ -538,7 +539,8 @@ final class VoiceCorpusRecorder {
     /// both are available we keep both, allowing later offline alignment to decide which is useful.
     /// A new utterance invalidates the previous watch so text from sample N+1 cannot attach to N.
     private func watchTextObservations(for session: Session, generation: Int, attempt: Int) {
-        guard generation == clipboardWatchGeneration else { return }
+        guard generation == clipboardWatchGeneration,
+              pendingObservation === session else { return }
 
         let secureInput = IsSecureEventInputEnabled()
         let sameFrontmostApp =
@@ -582,65 +584,33 @@ final class VoiceCorpusRecorder {
             }
         }
 
-        // AX is sampled only a handful of times. Re-resolve the focused target and require either
-        // the same AX node or a compatible semantic/geometric signature. Remaining in the same app
-        // is not enough: a different chat/search field must terminate attribution.
+        // AX is sampled only a handful of times, and the cross-process work stays off the main
+        // queue. This matters when attempts are close together: a hung/custom editor must not delay
+        // the next physical F10 press while an older sample is still waiting for text.
         if !session.accessibilityCaptured,
+           !session.axProbeInFlight,
            [2, 5, 10, 20, 35, 50].contains(attempt),
            let target = session.textTarget,
            let before = target.valueBeforeInsertion,
            NSWorkspace.shared.frontmostApplication?.processIdentifier == target.pid {
-            let current = VoiceTextDeliverer.resolveTarget(VoiceTextTargetSeed(
+            session.axProbeInFlight = true
+            let seed = VoiceTextTargetSeed(
                 pid: target.pid,
                 bundleIdentifier: target.bundleIdentifier,
                 applicationName: target.applicationName
-            ))
-            if current.isSecure {
-                session.secureInputSeenDuringObservation = true
-                finalizeObservation(
-                    session,
-                    textStatus: session.accessibilityCaptured
-                        ? "observed" : "interrupted_by_secure_input"
-                )
-                if pendingObservation === session { pendingObservation = nil }
-                return
-            }
-
-            let sameElement: Bool = {
-                guard let original = target.focusedElement,
-                      let now = current.focusedElement else { return false }
-                return CFEqual(original, now)
-            }()
-            let compatibleReplacement: Bool = {
-                guard let original = target.focusSignature,
-                      let now = current.focusSignature else { return false }
-                return now.isCompatibleReplacement(for: original)
-            }()
-            guard sameElement || compatibleReplacement else {
-                session.focusTargetChangedDuringObservation = true
-                finalizeObservation(
-                    session,
-                    textStatus: session.accessibilityCaptured
-                        ? "observed" : "interrupted_by_focus_change"
-                )
-                if pendingObservation === session { pendingObservation = nil }
-                return
-            }
-
-            if let after = current.valueBeforeInsertion,
-               let delta = Self.changedText(before: before, after: after) {
-                session.accessibilityCaptured = true
-                let observation = IMEObservation(
-                    version: 1,
-                    capturedAt: Date(),
-                    source: "accessibility_value_diff_after_external_voice",
-                    text: delta.inserted,
-                    attributionStatus: "target_verified",
-                    pasteboardChangeCount: nil,
-                    replacedCharacterCount: delta.removedCount
-                )
-                ioQueue.async { [weak self] in
-                    self?.persistIME(observation, filename: "ime.accessibility.json", for: session)
+            )
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let current = VoiceTextDeliverer.resolveTarget(seed)
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    session.axProbeInFlight = false
+                    self.consumeAXObservation(
+                        current,
+                        original: target,
+                        before: before,
+                        session: session,
+                        generation: generation
+                    )
                 }
             }
         }
@@ -654,6 +624,14 @@ final class VoiceCorpusRecorder {
         }
 
         guard attempt < textObservationAttempts else {
+            if session.axProbeInFlight {
+                DispatchQueue.main.asyncAfter(deadline: .now() + textObservationInterval) { [weak self] in
+                    self?.watchTextObservations(
+                        for: session, generation: generation, attempt: attempt + 1
+                    )
+                }
+                return
+            }
             let observed = session.accessibilityCaptured
             finalizeObservation(session, textStatus: observed ? "observed" : "not_observed")
             if pendingObservation === session { pendingObservation = nil }
@@ -665,6 +643,63 @@ final class VoiceCorpusRecorder {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + textObservationInterval) { [weak self] in
             self?.watchTextObservations(for: session, generation: generation, attempt: attempt + 1)
+        }
+    }
+
+    private func consumeAXObservation(
+        _ current: VoiceTextTarget,
+        original target: VoiceTextTarget,
+        before: String,
+        session: Session,
+        generation: Int
+    ) {
+        guard generation == clipboardWatchGeneration,
+              pendingObservation === session,
+              !session.accessibilityCaptured else { return }
+
+        if current.isSecure {
+            session.secureInputSeenDuringObservation = true
+            finalizeObservation(session, textStatus: "interrupted_by_secure_input")
+            pendingObservation = nil
+            return
+        }
+
+        let sameElement: Bool = {
+            guard let original = target.focusedElement,
+                  let now = current.focusedElement else { return false }
+            return CFEqual(original, now)
+        }()
+        let compatibleReplacement: Bool = {
+            guard let original = target.focusSignature,
+                  let now = current.focusSignature else { return false }
+            return now.isCompatibleReplacement(for: original)
+        }()
+        guard sameElement || compatibleReplacement else {
+            session.focusTargetChangedDuringObservation = true
+            finalizeObservation(session, textStatus: "interrupted_by_focus_change")
+            pendingObservation = nil
+            return
+        }
+
+        guard let after = current.valueBeforeInsertion,
+              let delta = Self.changedText(before: before, after: after) else { return }
+        session.accessibilityCaptured = true
+        let observation = IMEObservation(
+            version: 1,
+            capturedAt: Date(),
+            source: "accessibility_value_diff_after_external_voice",
+            text: delta.inserted,
+            attributionStatus: "target_verified",
+            pasteboardChangeCount: nil,
+            replacedCharacterCount: delta.removedCount
+        )
+        ioQueue.async { [weak self] in
+            self?.persistIME(observation, filename: "ime.accessibility.json", for: session)
+        }
+
+        if session.clipboardCaptured {
+            finalizeObservation(session, textStatus: "observed")
+            pendingObservation = nil
         }
     }
 
