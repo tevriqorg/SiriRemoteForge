@@ -580,6 +580,28 @@ final class VoiceTextDeliverer {
         let focused = focusedResult == .success
             ? (focusedValue as! AXUIElement?) : nil
 
+        // Privacy boundary first: never read selection/value from a secure target and never read
+        // editor contents while macOS Secure Event Input is active.
+        let secureInput = IsSecureEventInputEnabled()
+        let role = focused.flatMap { Self.attributeString($0, kAXRoleAttribute) }
+        let subrole = focused.flatMap { Self.attributeString($0, kAXSubroleAttribute) }
+        let isSecure = secureInput || role == "AXSecureTextField" || subrole == "AXSecureTextField"
+        if isSecure {
+            return VoiceTextTarget(
+                pid: seed.pid,
+                bundleIdentifier: seed.bundleIdentifier,
+                applicationName: seed.applicationName,
+                focusedElement: focused,
+                focusSignature: nil,
+                selectedText: nil,
+                selectedTextReadable: false,
+                selectedTextSettable: false,
+                isSecure: true,
+                valueBeforeInsertion: nil,
+                selectedRangeBeforeInsertion: nil
+            )
+        }
+
         var selectedTextSettable: DarwinBoolean = false
         var selectedText: String?
         var selectedTextReadable = false
@@ -615,11 +637,6 @@ final class VoiceTextDeliverer {
             }
         }
 
-        let role = focused.flatMap { Self.attributeString($0, kAXRoleAttribute) }
-        let subrole = focused.flatMap { Self.attributeString($0, kAXSubroleAttribute) }
-        let isSecure = role == "AXSecureTextField" || subrole == "AXSecureTextField"
-            || IsSecureEventInputEnabled()
-
         return VoiceTextTarget(
             pid: seed.pid,
             bundleIdentifier: seed.bundleIdentifier,
@@ -633,7 +650,7 @@ final class VoiceTextDeliverer {
             selectedText: selectedText,
             selectedTextReadable: selectedTextReadable,
             selectedTextSettable: selectedTextSettable.boolValue,
-            isSecure: isSecure,
+            isSecure: false,
             valueBeforeInsertion: valueBeforeInsertion,
             selectedRangeBeforeInsertion: selectedRangeBeforeInsertion
         )
