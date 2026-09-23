@@ -1334,8 +1334,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         model.onCheckForUpdates = { [weak self] in
             Task { @MainActor in self?.checkForUpdatesManually() }
         }
-        if model.tune.automaticUpdateChecksEnabled {
+        if model.softwareUpdatesAvailable && model.tune.automaticUpdateChecksEnabled {
             _ = ensureUpdateManager()
+        } else if !model.softwareUpdatesAvailable {
+            print("🪶 Local development build — Sparkle updater not created")
         } else {
             print("🪶 Automatic updates disabled at launch — Sparkle controller not created")
         }
@@ -1854,6 +1856,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let automaticUpdateDownloads = t.automaticallyDownloadUpdatesEnabled
         Task { @MainActor [weak self] in
             guard let self else { return }
+            if self.settingsModel?.softwareUpdatesAvailable != true {
+                return
+            }
             if automaticUpdateChecks {
                 self.ensureUpdateManager()?.apply(
                     automaticChecks: true,
@@ -2033,7 +2038,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     private func checkForUpdatesManually() {
-        guard let updates = ensureUpdateManager() else { return }
+        guard settingsModel?.softwareUpdatesAvailable == true,
+              let updates = ensureUpdateManager() else { return }
         updates.checkForUpdates()
     }
 
