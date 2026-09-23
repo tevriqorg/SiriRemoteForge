@@ -28,6 +28,10 @@ final class UpdateManager: NSObject, SPUUpdaterDelegate, SPUStandardUserDriverDe
     var onUpdateCleared: (() -> Void)?
 
     func start(automaticChecks: Bool, automaticDownloads: Bool) {
+        guard !isLocalBuild else {
+            rmDebug("🪶 local development build — Sparkle startup disabled")
+            return
+        }
         apply(automaticChecks: automaticChecks, automaticDownloads: automaticDownloads)
         guard !hasStarted else { return }
         controller.startUpdater()
@@ -35,6 +39,7 @@ final class UpdateManager: NSObject, SPUUpdaterDelegate, SPUStandardUserDriverDe
     }
 
     func apply(automaticChecks: Bool, automaticDownloads: Bool) {
+        guard !isLocalBuild else { return }
         // Set checks first: Sparkle intentionally reports automatic downloads as unavailable while
         // checks are disabled. Re-enabling checks therefore restores the separately saved download
         // choice in the same call.
@@ -44,6 +49,10 @@ final class UpdateManager: NSObject, SPUUpdaterDelegate, SPUStandardUserDriverDe
     }
 
     func checkForUpdates() {
+        guard !isLocalBuild else {
+            rmDebug("🪶 local development build — manual Sparkle check disabled")
+            return
+        }
         guard hasStarted else { return }
         controller.checkForUpdates(nil)
     }
