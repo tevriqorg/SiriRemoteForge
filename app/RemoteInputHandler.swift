@@ -1704,7 +1704,7 @@ class RemoteInputHandler {
     }
 
     private func stopAllHeldKeystrokes() {
-        for name in heldKeystrokes.keys {
+        for name in Array(heldKeystrokes.keys) {
             stopHeldKeystroke(name)
         }
     }
