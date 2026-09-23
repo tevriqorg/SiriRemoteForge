@@ -41,7 +41,7 @@ final class SettingsModel: ObservableObject {
     /// macOS. Keep the requested JSON value intact while surfacing the real OS error in Settings.
     @Published var launchAtLoginError: String?
     /// Recorder-known disk/write failures are factual App state, not inferred IME/network outcomes.
-    /// Keep the latest error visible until a later sample is persisted successfully.
+    /// Keep the latest error visible for this process rather than risk masking partial data loss.
     @Published var corpusStorageError: String?
 
     /// Local development candidates deliberately have no active Sparkle feed. Keeping this as a
