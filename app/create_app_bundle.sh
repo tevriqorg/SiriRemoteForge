@@ -28,6 +28,10 @@ if ! [[ "$RELEASE_VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z.-]*$ ]]; then
     echo "Error: invalid HYPERVIBE_RELEASE_VERSION: $RELEASE_VERSION"
     exit 1
 fi
+if ! [[ "$APP_BUNDLE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
+    echo "Error: invalid HYPERVIBE_BUNDLE_ID: $APP_BUNDLE_ID"
+    exit 1
+fi
 
 if [ ! -f "$BINARY_PATH" ]; then
     echo "Error: $BINARY_PATH executable not found."
@@ -40,7 +44,19 @@ if [ ! -f "HyperVibeCredentialBroker" ]; then
     exit 1
 fi
 
-echo "Creating app bundle: $APP_BUNDLE"
+if [ "$SIGN_MODE" = "developer" ]; then
+    case "$APP_BUNDLE" in
+        /Applications|/Applications/*)
+            echo "Error: developer packaging must stage outside /Applications."
+            echo "Build/sign/verify first; installation is a separate rollback-protected step."
+            exit 1
+            ;;
+    esac
+fi
+
+echo "Creating clean app bundle: $APP_BUNDLE"
+mkdir -p "$(dirname "$APP_BUNDLE")"
+rm -rf "$APP_BUNDLE"
 
 # Create bundle structure
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
@@ -160,7 +176,7 @@ EOF
 # Keep this embedded service byte-for-byte and metadata-stable across UI releases. The login
 # keychain grants its CDHash access once, while the broker mutually authenticates the containing
 # App by code-signing requirement before accepting any XPC message.
-cat > "${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Contents/Info.plist" <<'EOF'
+cat > "${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -230,7 +246,7 @@ if [ "$SIGN_MODE" = "developer" ]; then
             [ -n "$identity" ] && DEV_IDENTITIES+=("$identity")
         done < <(
             security find-identity -v -p codesigning 2>/dev/null \
-                | sed -n 's/^[[:space:]]*[0-9][0-9]*) [0-9A-F]* "\(Apple Development:.*\)"$/\1/p'
+                | sed -n 's/^[[:space:]]*[0-9][0-9]*) [0-9A-Fa-f]* "\(Apple Development:.*\)"$/\1/p'
         )
         if [ "${#DEV_IDENTITIES[@]}" -eq 0 ]; then
             echo "Error: no valid Apple Development signing identity was found."
