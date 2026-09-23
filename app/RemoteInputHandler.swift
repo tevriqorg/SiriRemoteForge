@@ -1026,10 +1026,10 @@ class RemoteInputHandler {
             return
         }
 
-        // 3) Push-to-talk: fire the combo on BOTH raw edges — press AND release — immediately,
-        //    bypassing tap/double/taphold/hold discrimination and auto-repeat entirely. Built for
-        //    toggle hotkeys (press = dictation ON, release = OFF), so the two edges must always
-        //    come in matched pairs:
+        // 3) Push-to-talk: unlike holdKeystroke above, this path retains its existing
+        //    activation delay so a short press can remain a tap/double action. Once promoted, the
+        //    configured toggle combo opens on the delayed press and closes on the physical release,
+        //    bypassing the ordinary hold/taphold stages and auto-repeat:
         //      - the release replays the combo CAPTURED AT PRESS TIME, and closes the pair even if
         //        the key no longer resolves to `.pushToTalk` (layer/mode change mid-hold, config
         //        hot-reload) — same reasoning as the unconditional repeat-timer stop below;
