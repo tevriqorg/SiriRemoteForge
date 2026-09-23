@@ -19,6 +19,9 @@ fi
     exit 2
 }
 
+: "${HYPERVIBE_UPDATE_FEED_URL:?set this fork's release appcast URL before building}"
+: "${HYPERVIBE_UPDATE_PUBLIC_KEY:?set this fork's Sparkle Ed25519 public key before building}"
+
 if [ "${HYPERVIBE_ALLOW_DIRTY:-0}" != "1" ] && [ -n "$(git status --porcelain)" ]; then
     echo "REFUSED: release builds require a clean worktree" >&2
     echo "set HYPERVIBE_ALLOW_DIRTY=1 only for a local packaging test" >&2
@@ -56,6 +59,8 @@ echo "→ building HyperVibe $APP_VERSION ($COMMIT)"
     HYPERVIBE_VERSION="$APP_VERSION" \
     HYPERVIBE_BUILD_NUMBER="$BUILD_NUMBER" \
     HYPERVIBE_RELEASE_VERSION="$RELEASE_VERSION" \
+    HYPERVIBE_UPDATE_FEED_URL="$HYPERVIBE_UPDATE_FEED_URL" \
+    HYPERVIBE_UPDATE_PUBLIC_KEY="$HYPERVIBE_UPDATE_PUBLIC_KEY" \
     HYPERVIBE_SIGN_MODE=adhoc \
     HYPERVIBE_APP_BUNDLE_PATH="$APP_STAGE" \
         ./create_app_bundle.sh
