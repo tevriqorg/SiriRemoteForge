@@ -70,7 +70,7 @@ echo "→ auditing native Installer structure"
 /bin/bash -n "$PKG_POSTINSTALL"
 /usr/bin/xmllint --noout "$AUDIT_DIR/native-pkg/Distribution" "$PKG_COMPONENT/PackageInfo"
 /usr/bin/grep -Fq 'hostArchitectures="arm64"' "$AUDIT_DIR/native-pkg/Distribution"
-/usr/bin/grep -Fq 'identifier="com.hypervibe.full"' "$PKG_COMPONENT/PackageInfo"
+/usr/bin/grep -Fq 'identifier="org.tevriq.siriremoteforge.full"' "$PKG_COMPONENT/PackageInfo"
 /usr/bin/grep -Fq '<must-close>' "$AUDIT_DIR/native-pkg/Distribution"
 /usr/bin/grep -Fq -- '--args --system-check' "$PKG_POSTINSTALL"
 /usr/bin/diff -qr "$PAYLOAD" "$PKG_PAYLOAD" >/dev/null
