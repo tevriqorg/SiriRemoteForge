@@ -380,6 +380,11 @@ private final class VoiceCredentialBrokerClient {
         let process = Process()
         process.executableURL = brokerURL
         process.arguments = arguments
+        var environment = ProcessInfo.processInfo.environment
+        if let hostID = Bundle.main.bundleIdentifier {
+            environment["HYPERVIBE_HOST_BUNDLE_ID"] = hostID
+        }
+        process.environment = environment
         process.standardInput = inputPipe
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
@@ -408,7 +413,8 @@ private final class VoiceCredentialBrokerClient {
     }
 
     private static func validBroker(at url: URL) -> Bool {
-        guard let requirementText = peerRequirement(identifier: "com.hypervibe.app.CredentialBroker")
+        guard let hostID = Bundle.main.bundleIdentifier,
+              let requirementText = peerRequirement(identifier: hostID + ".CredentialBroker")
         else { return false }
         var requirement: SecRequirement?
         guard SecRequirementCreateWithString(
