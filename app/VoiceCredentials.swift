@@ -34,6 +34,7 @@ enum VoiceCredentialStore {
     enum Backend: Equatable {
         case keychain
         case localJSON
+        case unavailable
     }
 
     /// UI-safe snapshot. Code-signature validation can consult Security.framework and must not be
@@ -41,6 +42,21 @@ enum VoiceCredentialStore {
     static var cachedBackend: Backend? {
         cacheLock.lock(); defer { cacheLock.unlock() }
         return resolvedStorageBackend
+    }
+
+    private static func packagedBackendExpectation() -> Backend? {
+        if let raw = Bundle.main.object(
+            forInfoDictionaryKey: "HyperVibeCredentialBackend"
+        ) as? String {
+            switch raw {
+            case "keychain": return .keychain
+            case "local-json": return .localJSON
+            default: return .unavailable
+            }
+        }
+        // A packaged App missing the marker is a packaging/security regression. Bare developer
+        // binaries and headless tests retain auto-detection for compatibility.
+        return Bundle.main.bundleURL.pathExtension == "app" ? .unavailable : nil
     }
 
     private static func resolveBackend() -> Backend {
@@ -51,8 +67,20 @@ enum VoiceCredentialStore {
         }
         cacheLock.unlock()
 
-        let value: Backend = VoiceCredentialBrokerClient.shared.isAvailable
-            ? .keychain : .localJSON
+        let value: Backend
+        if let expected = packagedBackendExpectation() {
+            switch expected {
+            case .keychain:
+                value = VoiceCredentialBrokerClient.shared.isAvailable ? .keychain : .unavailable
+            case .localJSON:
+                value = .localJSON
+            case .unavailable:
+                value = .unavailable
+            }
+        } else {
+            value = VoiceCredentialBrokerClient.shared.isAvailable ? .keychain : .localJSON
+        }
+
         cacheLock.lock()
         if resolvedStorageBackend == nil { resolvedStorageBackend = value }
         let resolved = resolvedStorageBackend ?? value
@@ -97,8 +125,18 @@ enum VoiceCredentialStore {
         let generation = mutationGeneration
         cacheLock.unlock()
 
-        let brokerResults = VoiceCredentialBrokerClient.shared.readAll()
-        let localResults = try? LocalJSONCredentialStore.shared.readAll()
+        let backend = resolveBackend()
+        if backend == .unavailable {
+            cacheLock.lock()
+            confirmedMissing.formUnion(VoiceCredentialKind.allCases)
+            loadedAll = true
+            cacheLock.unlock()
+            return nil
+        }
+        let brokerResults = backend == .keychain
+            ? VoiceCredentialBrokerClient.shared.readAll() : nil
+        let localResults = backend == .localJSON
+            ? (try? LocalJSONCredentialStore.shared.readAll()) : nil
 
         cacheLock.lock()
         guard mutationGeneration == generation else {
@@ -148,6 +186,8 @@ enum VoiceCredentialStore {
             } catch {
                 throw VoiceCredentialError.localStorage
             }
+        case .unavailable:
+            throw VoiceCredentialError.brokerUnavailable
         }
         cacheLock.lock()
         cached[kind] = clean
@@ -157,11 +197,16 @@ enum VoiceCredentialStore {
     }
 
     static func remove(_ kind: VoiceCredentialKind) throws {
-        if resolveBackend() == .keychain {
+        switch resolveBackend() {
+        case .keychain:
             let status = VoiceCredentialBrokerClient.shared.remove(account: kind.rawValue)
             guard status == errSecSuccess || status == errSecItemNotFound else {
                 throw VoiceCredentialError.keychain(status)
             }
+        case .localJSON:
+            break
+        case .unavailable:
+            throw VoiceCredentialError.brokerUnavailable
         }
         do {
             // Remove a legacy beta-file copy too. Otherwise a credential deleted after moving to
@@ -456,6 +501,7 @@ enum VoiceCredentialError: LocalizedError {
     case empty
     case keychain(OSStatus)
     case localStorage
+    case brokerUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -466,6 +512,8 @@ enum VoiceCredentialError: LocalizedError {
             return L("Keychain couldn't save the credential: %@", detail)
         case .localStorage:
             return L("The local API credential file is unavailable.")
+        case .brokerUnavailable:
+            return L("Credential Broker validation failed. This signed build will not fall back to plaintext credential storage.")
         }
     }
 }
