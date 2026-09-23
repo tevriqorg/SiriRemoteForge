@@ -395,7 +395,13 @@ final class VoiceCorpusRecorder {
             DispatchQueue.global(qos: .userInitiated).async {
                 let target = VoiceTextDeliverer.resolveTarget(seed)
                 DispatchQueue.main.async {
-                    if !target.isSecure { session.textTarget = target }
+                    // If a very short press ended before the baseline was captured, prefer no AX
+                    // label. A post-release "before" snapshot can only create false confidence.
+                    guard session.endedAt == nil,
+                          NSWorkspace.shared.frontmostApplication?.processIdentifier
+                            == session.applicationPID,
+                          !target.isSecure else { return }
+                    session.textTarget = target
                 }
             }
         }
