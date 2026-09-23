@@ -41,6 +41,20 @@ Mono PCM16 produced by the existing `VoiceAudioCaptureSession`. The capture choo
 Remote ring when available and otherwise falls back to the built-in microphone ring. The chosen
 source is recorded in `capture.json`.
 
+Corpus does **not** retain the full utterance PCM in memory. After the brief source probe, PCM chunks
+are appended directly to `audio.wav`; the WAV header is finalized on release/normal shutdown. This
+keeps long thinking/silence holds bounded in App memory rather than growing roughly 48 KB/s at
+24 kHz mono PCM16. Native Voice keeps its existing in-memory/AsyncStream behavior and is unaffected.
+
+`capture.json` records both generated and actually persisted audio frames:
+- `frame_count`: frames produced by the capture session;
+- `audio_stored_frame_count`: frames written to the WAV spool;
+- `audio_storage_status`: `complete` only when the writer had no error and the two frame counts
+  match, otherwise `incomplete`.
+
+A forced kill or power loss can still leave the current WAV header unfinished; crash-level audio
+journaling is outside the current in-process durability guarantee.
+
 ### capture.json
 
 Immutable physical/capture facts:
@@ -49,7 +63,8 @@ Immutable physical/capture facts:
 - start/end timestamps;
 - resolved action and shortcut;
 - frontmost application metadata;
-- audio source, sample rate, frame count, duration and mean-square level.
+- audio source, sample rate, generated/stored frame counts, storage status, duration and
+  mean-square level.
 
 The presence or absence of speech is not decided here.
 
