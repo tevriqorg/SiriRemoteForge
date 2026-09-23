@@ -583,6 +583,7 @@ final class VoiceTextDeliverer {
         // Privacy boundary first: never read selection/value from a secure target and never read
         // editor contents while macOS Secure Event Input is active.
         let secureInput = IsSecureEventInputEnabled()
+        if let focused { AXUIElementSetMessagingTimeout(focused, 0.025) }
         let role = focused.flatMap { Self.attributeString($0, kAXRoleAttribute) }
         let subrole = focused.flatMap { Self.attributeString($0, kAXSubroleAttribute) }
         let isSecure = secureInput || role == "AXSecureTextField" || subrole == "AXSecureTextField"
