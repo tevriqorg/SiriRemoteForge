@@ -82,6 +82,18 @@ private final class VoiceCorpusWAVSpool {
         }
     }
 
+    /// Filesystem setup is asynchronous so it cannot delay a physical button edge. If setup fails,
+    /// stop accepting pre-config chunks immediately instead of growing RAM for the rest of the hold.
+    func fail(_ error: Error) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !finalized else { return }
+        writeError = writeError ?? error
+        bufferedBeforeConfigure.removeAll(keepingCapacity: false)
+        try? handle?.close()
+        handle = nil
+    }
+
     func finalize(sampleRate: Int, expectedFrameCount: Int) -> Finalization {
         lock.lock()
         defer { lock.unlock() }
@@ -268,12 +280,14 @@ final class VoiceCorpusRecorder {
         let capturedAt: Date
         let source: String
         let text: String
+        let attributionStatus: String
         let pasteboardChangeCount: Int?
         let replacedCharacterCount: Int?
 
         private enum CodingKeys: String, CodingKey {
             case version, source, text
             case capturedAt = "captured_at"
+            case attributionStatus = "attribution_status"
             case pasteboardChangeCount = "pasteboard_change_count"
             case replacedCharacterCount = "replaced_character_count"
         }
@@ -282,14 +296,17 @@ final class VoiceCorpusRecorder {
     private let fileManager: FileManager
     let rootURL: URL
     private let ioQueue = DispatchQueue(label: "com.hypervibe.voice-corpus", qos: .utility)
+    private let onStorageStatus: (String?) -> Void
     private var active: Session?
     private var pendingObservation: Session?
     private var clipboardWatchGeneration = 0
     private let textObservationInterval: TimeInterval = 0.1
     private let textObservationAttempts = 50
 
-    init(rootURL: URL? = nil, fileManager: FileManager = .default) {
+    init(rootURL: URL? = nil, fileManager: FileManager = .default,
+         onStorageStatus: @escaping (String?) -> Void = { _ in }) {
         self.fileManager = fileManager
+        self.onStorageStatus = onStorageStatus
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory())
                 .appendingPathComponent("Library/Application Support", isDirectory: true)
@@ -319,8 +336,8 @@ final class VoiceCorpusRecorder {
         let app = NSWorkspace.shared.frontmostApplication
         let pasteboard = NSPasteboard.general
 
-        // Start capture before directory creation/AX work so first-use filesystem latency cannot
-        // move the raw audio boundary farther away from the physical F10 down edge.
+        // Keep only O(1) capture/state work on the physical button edge. Filesystem setup and AX
+        // messaging happen off-thread so Corpus cannot stretch the external F10 key lifecycle.
         let audioSpool = VoiceCorpusWAVSpool()
         let capture = VoiceAudioCaptureSession(
             minimumDuration: 0,
@@ -334,19 +351,6 @@ final class VoiceCorpusRecorder {
         capture.start()
 
         let directoryURL = sampleDirectory(id: id, date: startedAt)
-        do {
-            try prepareDirectory(directoryURL)
-            try audioSpool.configure(at: directoryURL.appendingPathComponent("audio.wav"))
-        } catch {
-            Task { _ = await capture.stop() }
-            try? fileManager.removeItem(at: directoryURL)
-            rmDebug("🗂 corpus: cannot prepare streamed sample: \(error.localizedDescription)")
-            return
-        }
-
-        // Corpus recording intentionally has no speech/silence/short-press gate. The physical
-        // button defines the raw sample boundary. One hour is only an emergency stuck-session cap;
-        // silence, thinking pauses and very short holds are preserved for later analysis.
         let session = Session(
             id: id,
             startedAt: startedAt,
@@ -363,17 +367,34 @@ final class VoiceCorpusRecorder {
         )
         active = session
 
-        // Audio is already running before this bounded AX query. Keep only the in-memory BEFORE
-        // state needed to derive this utterance's inserted/replaced text; never persist the field's
-        // pre-existing contents. Secure targets are discarded immediately.
+        ioQueue.async { [weak self] in
+            guard let self else { return }
+            do {
+                try self.prepareDirectory(directoryURL)
+                try audioSpool.configure(at: directoryURL.appendingPathComponent("audio.wav"))
+            } catch {
+                audioSpool.fail(error)
+                try? self.fileManager.removeItem(at: directoryURL)
+                self.reportStorageFailure(
+                    "Voice Corpus cannot prepare its sample directory: \(error.localizedDescription)"
+                )
+            }
+        }
+
+        // Resolve the pre-attempt AX target away from the input callback. Observation later
+        // re-validates the focused element before any changed text is attributed to this sample.
         if let app {
             let seed = VoiceTextTargetSeed(
                 pid: app.processIdentifier,
                 bundleIdentifier: app.bundleIdentifier,
                 applicationName: app.localizedName ?? L("Current App")
             )
-            let target = VoiceTextDeliverer.resolveTarget(seed)
-            if !target.isSecure { session.textTarget = target }
+            DispatchQueue.global(qos: .userInitiated).async {
+                let target = VoiceTextDeliverer.resolveTarget(seed)
+                DispatchQueue.main.async {
+                    if !target.isSecure { session.textTarget = target }
+                }
+            }
         }
         rmDebug("🗂 corpus: began id=\(id.uuidString) key=\(handled.key)")
     }
@@ -385,7 +406,7 @@ final class VoiceCorpusRecorder {
         if let previous = pendingObservation {
             finalizeObservation(
                 previous,
-                textStatus: previous.clipboardCaptured || previous.accessibilityCaptured
+                textStatus: previous.accessibilityCaptured
                     ? "observed" : "interrupted_by_next_attempt"
             )
             pendingObservation = nil
@@ -460,6 +481,11 @@ final class VoiceCorpusRecorder {
         audio: VoiceCapturedAudio,
         storage: VoiceCorpusWAVSpool.Finalization
     ) {
+        if storage.status != "complete" {
+            reportStorageFailure(
+                "Voice Corpus audio is incomplete for sample \(session.id.uuidString)."
+            )
+        }
         do {
             let recordURL = session.directoryURL.appendingPathComponent("capture.json")
             let record = CaptureRecord(
@@ -486,10 +512,14 @@ final class VoiceCorpusRecorder {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
             try encoder.encode(record).write(to: recordURL, options: .atomic)
             try secureFile(recordURL)
+            if storage.status == "complete" { reportStorageHealthy() }
             rmDebug("🗂 corpus: saved id=\(session.id.uuidString) "
                     + "source=\(audio.source.rawValue) duration=\(String(format: "%.2f", audio.duration))s "
                     + "storage=\(storage.status) frames=\(storage.storedFrameCount)/\(audio.frameCount)")
         } catch {
+            reportStorageFailure(
+                "Voice Corpus cannot save capture metadata: \(error.localizedDescription)"
+            )
             rmDebug("🗂 corpus: metadata save failed id=\(session.id.uuidString): "
                     + error.localizedDescription)
         }
@@ -508,7 +538,7 @@ final class VoiceCorpusRecorder {
 
         if secureInput {
             session.secureInputSeenDuringObservation = true
-            let status = session.clipboardCaptured || session.accessibilityCaptured
+            let status = session.accessibilityCaptured
                 ? "observed" : "interrupted_by_secure_input"
             finalizeObservation(session, textStatus: status)
             if pendingObservation === session { pendingObservation = nil }
@@ -516,7 +546,7 @@ final class VoiceCorpusRecorder {
         }
         if !sameFrontmostApp {
             session.frontmostAppChangedDuringObservation = true
-            let status = session.clipboardCaptured || session.accessibilityCaptured
+            let status = session.accessibilityCaptured
                 ? "observed" : "interrupted_by_focus_change"
             finalizeObservation(session, textStatus: status)
             if pendingObservation === session { pendingObservation = nil }
@@ -534,6 +564,7 @@ final class VoiceCorpusRecorder {
                     capturedAt: Date(),
                     source: "clipboard_change_after_external_voice",
                     text: text,
+                    attributionStatus: "unattributed_observation",
                     pasteboardChangeCount: pasteboard.changeCount,
                     replacedCharacterCount: nil
                 )
@@ -543,20 +574,52 @@ final class VoiceCorpusRecorder {
             }
         }
 
-        // AX is intentionally sampled only a handful of times so a slow custom editor cannot turn
-        // the 100 ms clipboard poll into repeated cross-process IPC. We only persist the minimal
-        // changed span, never the before/after field values.
+        // AX is sampled only a handful of times. Re-resolve the focused target and require either
+        // the same AX node or a compatible semantic/geometric signature. Remaining in the same app
+        // is not enough: a different chat/search field must terminate attribution.
         if !session.accessibilityCaptured,
            [2, 5, 10, 20, 35, 50].contains(attempt),
            let target = session.textTarget,
            let before = target.valueBeforeInsertion,
-           NSWorkspace.shared.frontmostApplication?.processIdentifier == target.pid,
-           let element = target.focusedElement {
-            AXUIElementSetMessagingTimeout(element, 0.025)
-            var value: CFTypeRef?
-            if AXUIElementCopyAttributeValue(
-                element, kAXValueAttribute as CFString, &value
-            ) == .success, let after = value as? String,
+           NSWorkspace.shared.frontmostApplication?.processIdentifier == target.pid {
+            let current = VoiceTextDeliverer.resolveTarget(VoiceTextTargetSeed(
+                pid: target.pid,
+                bundleIdentifier: target.bundleIdentifier,
+                applicationName: target.applicationName
+            ))
+            if current.isSecure {
+                session.secureInputSeenDuringObservation = true
+                finalizeObservation(
+                    session,
+                    textStatus: session.accessibilityCaptured
+                        ? "observed" : "interrupted_by_secure_input"
+                )
+                if pendingObservation === session { pendingObservation = nil }
+                return
+            }
+
+            let sameElement: Bool = {
+                guard let original = target.focusedElement,
+                      let now = current.focusedElement else { return false }
+                return CFEqual(original, now)
+            }()
+            let compatibleReplacement: Bool = {
+                guard let original = target.focusSignature,
+                      let now = current.focusSignature else { return false }
+                return now.isCompatibleReplacement(for: original)
+            }()
+            guard sameElement || compatibleReplacement else {
+                session.frontmostAppChangedDuringObservation = true
+                finalizeObservation(
+                    session,
+                    textStatus: session.accessibilityCaptured
+                        ? "observed" : "interrupted_by_focus_change"
+                )
+                if pendingObservation === session { pendingObservation = nil }
+                return
+            }
+
+            if let after = current.valueBeforeInsertion,
                let delta = Self.changedText(before: before, after: after) {
                 session.accessibilityCaptured = true
                 let observation = IMEObservation(
@@ -564,6 +627,7 @@ final class VoiceCorpusRecorder {
                     capturedAt: Date(),
                     source: "accessibility_value_diff_after_external_voice",
                     text: delta.inserted,
+                    attributionStatus: "target_verified",
                     pasteboardChangeCount: nil,
                     replacedCharacterCount: delta.removedCount
                 )
@@ -573,15 +637,16 @@ final class VoiceCorpusRecorder {
             }
         }
 
-        let axUnavailable = session.textTarget?.valueBeforeInsertion == nil
-        if session.clipboardCaptured && (session.accessibilityCaptured || axUnavailable) {
+        // The pasteboard is global. Preserve it as Raw evidence, but never let it alone establish
+        // an audio/text pair. Only a target-verified AX delta makes text_status observationally true.
+        if session.clipboardCaptured && session.accessibilityCaptured {
             finalizeObservation(session, textStatus: "observed")
             if pendingObservation === session { pendingObservation = nil }
             return
         }
 
         guard attempt < textObservationAttempts else {
-            let observed = session.clipboardCaptured || session.accessibilityCaptured
+            let observed = session.accessibilityCaptured
             finalizeObservation(session, textStatus: observed ? "observed" : "not_observed")
             if pendingObservation === session { pendingObservation = nil }
             if !observed {
@@ -652,6 +717,9 @@ final class VoiceCorpusRecorder {
             rmDebug("🗂 corpus: observation finalized id=\(session.id.uuidString)"
                     + " text=\(observation.textStatus)")
         } catch {
+            reportStorageFailure(
+                "Voice Corpus cannot save observation metadata: \(error.localizedDescription)"
+            )
             rmDebug("🗂 corpus: observation save failed id=\(session.id.uuidString): "
                     + error.localizedDescription)
         }
@@ -692,7 +760,7 @@ final class VoiceCorpusRecorder {
                 // This may repeat already-completed metadata; spool finalization is idempotent and
                 // the JSON replacement is atomic.
                 persistCapture(session: session, endedAt: endedAt, audio: audio, storage: storage)
-                let status = session.clipboardCaptured || session.accessibilityCaptured
+                let status = session.accessibilityCaptured
                     ? "observed" : "interrupted_by_app_termination"
                 persistObservation(makeAttemptObservation(session, textStatus: status), for: session)
             }
@@ -713,9 +781,23 @@ final class VoiceCorpusRecorder {
             rmDebug("🗂 corpus: attached \(observation.source) id=\(session.id.uuidString) "
                     + "chars=\(observation.text.count)")
         } catch {
+            reportStorageFailure(
+                "Voice Corpus cannot save text observation: \(error.localizedDescription)"
+            )
             rmDebug("🗂 corpus: IME save failed id=\(session.id.uuidString): "
                     + error.localizedDescription)
         }
+    }
+
+    private func reportStorageFailure(_ message: String) {
+        rmDebug("🗂 corpus storage failure: \(message)")
+        let callback = onStorageStatus
+        DispatchQueue.main.async { callback(message) }
+    }
+
+    private func reportStorageHealthy() {
+        let callback = onStorageStatus
+        DispatchQueue.main.async { callback(nil) }
     }
 
     private func secureFile(_ url: URL) throws {
