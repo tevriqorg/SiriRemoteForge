@@ -60,13 +60,15 @@ Best-effort observation only. Written when the pasteboard changes after the atte
 - the application that was frontmost at attempt start is still frontmost; and
 - Secure Input is not active.
 
-A clipboard observation is evidence, not automatically ground truth.
+A clipboard observation is evidence, not automatically ground truth. The observed string is stored
+verbatim; capture-time code does not trim leading/trailing whitespace or newlines.
 
 ### ime.accessibility.json
 
 Best-effort observation only. When the original focused text field exposes readable Accessibility
 text, HyperVibe stores only the changed span after the attempt. The field's pre-existing contents are
-never persisted. Secure fields and Secure Input are excluded.
+never persisted. The changed span is stored verbatim rather than normalized. Secure fields and
+Secure Input are excluded.
 
 ### observation.json
 
@@ -90,6 +92,8 @@ Final raw observation state. Typical fields include:
 - `observed`: at least one text source was observed;
 - `not_observed`: no text source was observed within the configured post-release window;
 - `interrupted_by_next_attempt`: a newer physical attempt took ownership of text attribution first;
+- `interrupted_by_focus_change`: another app became frontmost before text was observed;
+- `interrupted_by_secure_input`: Secure Input appeared before text was observed;
 - `interrupted_by_app_termination`: the App shut down while the attempt/observation was still open.
 
 No-text does **not** mean "IME failed". It may represent, among other things:
@@ -110,7 +114,9 @@ A missing label is safer than a wrong label.
 
 After release, text is observed for a bounded window. If a new Side attempt begins before the
 previous window completes, the previous watcher is finalized before the new attempt owns
-attribution. Text from sample N+1 must never be attached to audio from sample N.
+attribution — even if Corpus has just been switched off or the new sample cannot be persisted.
+A frontmost-app change or Secure Input also closes attribution immediately. Text from sample N+1
+must never be attached to audio from sample N.
 
 ## Raw → Analysis → Dataset
 
