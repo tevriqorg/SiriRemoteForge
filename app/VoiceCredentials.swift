@@ -59,6 +59,20 @@ enum VoiceCredentialStore {
         return Bundle.main.bundleURL.pathExtension == "app" ? .unavailable : nil
     }
 
+    static func backendPolicy(expected: Backend?, brokerAvailable: Bool) -> Backend {
+        guard let expected else {
+            return brokerAvailable ? .keychain : .localJSON
+        }
+        switch expected {
+        case .keychain:
+            return brokerAvailable ? .keychain : .unavailable
+        case .localJSON:
+            return .localJSON
+        case .unavailable:
+            return .unavailable
+        }
+    }
+
     private static func resolveBackend() -> Backend {
         cacheLock.lock()
         if let value = resolvedStorageBackend {
@@ -67,19 +81,10 @@ enum VoiceCredentialStore {
         }
         cacheLock.unlock()
 
-        let value: Backend
-        if let expected = packagedBackendExpectation() {
-            switch expected {
-            case .keychain:
-                value = VoiceCredentialBrokerClient.shared.isAvailable ? .keychain : .unavailable
-            case .localJSON:
-                value = .localJSON
-            case .unavailable:
-                value = .unavailable
-            }
-        } else {
-            value = VoiceCredentialBrokerClient.shared.isAvailable ? .keychain : .localJSON
-        }
+        let value = backendPolicy(
+            expected: packagedBackendExpectation(),
+            brokerAvailable: VoiceCredentialBrokerClient.shared.isAvailable
+        )
 
         cacheLock.lock()
         if resolvedStorageBackend == nil { resolvedStorageBackend = value }
