@@ -28,6 +28,8 @@ final class VoiceCorpusRecorder {
         var textTarget: VoiceTextTarget?
         var clipboardCaptured = false
         var accessibilityCaptured = false
+        var frontmostAppChangedDuringObservation = false
+        var secureInputSeenDuringObservation = false
 
         init(id: UUID, startedAt: Date, directoryURL: URL,
              actionKey: String, actionKind: String, shortcutKeys: String,
@@ -82,6 +84,35 @@ final class VoiceCorpusRecorder {
         }
     }
 
+    private struct AttemptObservation: Codable {
+        let version: Int
+        let id: UUID
+        let finalizedAt: Date
+        let textStatus: String
+        let clipboardObserved: Bool
+        let accessibilityObserved: Bool
+        let frontmostAppChanged: Bool
+        let secureInputSeen: Bool
+        let observationWindowSeconds: Double
+        let speechStatus: String
+        let imeOutcome: String
+        let networkStatus: String
+
+        private enum CodingKeys: String, CodingKey {
+            case version, id
+            case finalizedAt = "finalized_at"
+            case textStatus = "text_status"
+            case clipboardObserved = "clipboard_observed"
+            case accessibilityObserved = "accessibility_observed"
+            case frontmostAppChanged = "frontmost_app_changed"
+            case secureInputSeen = "secure_input_seen"
+            case observationWindowSeconds = "observation_window_seconds"
+            case speechStatus = "speech_status"
+            case imeOutcome = "ime_outcome"
+            case networkStatus = "network_status"
+        }
+    }
+
     private struct IMEObservation: Codable {
         let version: Int
         let capturedAt: Date
@@ -102,7 +133,10 @@ final class VoiceCorpusRecorder {
     let rootURL: URL
     private let ioQueue = DispatchQueue(label: "com.hypervibe.voice-corpus", qos: .utility)
     private var active: Session?
+    private var pendingObservation: Session?
     private var clipboardWatchGeneration = 0
+    private let textObservationInterval: TimeInterval = 0.1
+    private let textObservationAttempts = 50
 
     init(rootURL: URL? = nil, fileManager: FileManager = .default) {
         self.fileManager = fileManager
@@ -136,17 +170,31 @@ final class VoiceCorpusRecorder {
             return
         }
 
+        // A new physical utterance owns text attribution from this point forward. Finalize any
+        // previous released utterance before invalidating its watcher: missing text is a normal raw
+        // outcome, and it is safer to mark it interrupted than to risk attaching this utterance's
+        // delayed IME text to the previous audio.
+        if let previous = pendingObservation {
+            finalizeObservation(
+                previous,
+                textStatus: previous.clipboardCaptured || previous.accessibilityCaptured
+                    ? "observed" : "interrupted_by_next_attempt"
+            )
+            pendingObservation = nil
+        }
+
         let app = NSWorkspace.shared.frontmostApplication
         let pasteboard = NSPasteboard.general
-        clipboardWatchGeneration &+= 1   // a new utterance owns future clipboard attribution
+        clipboardWatchGeneration &+= 1
 
-        // Corpus recording intentionally has no speech-length gate. Even a short but genuine
-        // external hold is useful training/evaluation evidence. Five minutes is only a safety cap.
+        // Corpus recording intentionally has no speech/silence/short-press gate. The physical
+        // button defines the raw sample boundary. One hour is only an emergency stuck-session cap;
+        // silence, thinking pauses and very short holds are preserved for later analysis.
         let capture = VoiceAudioCaptureSession(
             minimumDuration: 0,
-            maxDuration: 300,
+            maxDuration: 3_600,
             onMinimumDurationReached: {},
-            onMaximumDuration: { rmDebug("🗂 corpus: five-minute safety cap reached") }
+            onMaximumDuration: { rmDebug("🗂 corpus: one-hour emergency safety cap reached") }
         )
         let session = Session(
             id: id,
@@ -187,6 +235,7 @@ final class VoiceCorpusRecorder {
         active = nil
         let endedAt = Date()
         let watchGeneration = clipboardWatchGeneration
+        pendingObservation = session
         watchClipboard(for: session, generation: watchGeneration, attempt: 0)
 
         Task { [weak self] in
@@ -273,9 +322,15 @@ final class VoiceCorpusRecorder {
     private func watchClipboard(for session: Session, generation: Int, attempt: Int) {
         guard generation == clipboardWatchGeneration else { return }
 
+        let secureInput = IsSecureEventInputEnabled()
+        let sameFrontmostApp =
+            NSWorkspace.shared.frontmostApplication?.processIdentifier == session.applicationPID
+        if secureInput { session.secureInputSeenDuringObservation = true }
+        if !sameFrontmostApp { session.frontmostAppChangedDuringObservation = true }
+
         if !session.clipboardCaptured,
-           !IsSecureEventInputEnabled(),
-           NSWorkspace.shared.frontmostApplication?.processIdentifier == session.applicationPID {
+           !secureInput,
+           sameFrontmostApp {
             let pasteboard = NSPasteboard.general
             if pasteboard.changeCount != session.clipboardBaselineChangeCount,
                let text = pasteboard.string(forType: .string)?
@@ -300,8 +355,8 @@ final class VoiceCorpusRecorder {
         // the 100 ms clipboard poll into repeated cross-process IPC. We only persist the minimal
         // changed span, never the before/after field values.
         if !session.accessibilityCaptured,
-           !IsSecureEventInputEnabled(),
-           [2, 5, 10, 20].contains(attempt),
+           !secureInput,
+           [2, 5, 10, 20, 35, 50].contains(attempt),
            let target = session.textTarget,
            let before = target.valueBeforeInsertion,
            NSWorkspace.shared.frontmostApplication?.processIdentifier == target.pid,
@@ -328,14 +383,23 @@ final class VoiceCorpusRecorder {
         }
 
         let axUnavailable = session.textTarget?.valueBeforeInsertion == nil
-        if session.clipboardCaptured && (session.accessibilityCaptured || axUnavailable) { return }
-        guard attempt < 20 else {
-            if !session.clipboardCaptured && !session.accessibilityCaptured {
-                rmDebug("🗂 corpus: no IME text observed id=\(session.id.uuidString)")
+        if session.clipboardCaptured && (session.accessibilityCaptured || axUnavailable) {
+            finalizeObservation(session, textStatus: "observed")
+            if pendingObservation === session { pendingObservation = nil }
+            return
+        }
+
+        guard attempt < textObservationAttempts else {
+            let observed = session.clipboardCaptured || session.accessibilityCaptured
+            finalizeObservation(session, textStatus: observed ? "observed" : "not_observed")
+            if pendingObservation === session { pendingObservation = nil }
+            if !observed {
+                rmDebug("🗂 corpus: text not observed id=\(session.id.uuidString)"
+                        + " (speech/network/IME outcome intentionally not inferred)")
             }
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + textObservationInterval) { [weak self] in
             self?.watchClipboard(for: session, generation: generation, attempt: attempt + 1)
         }
     }
@@ -361,6 +425,39 @@ final class VoiceCorpusRecorder {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !inserted.isEmpty else { return nil }
         return (inserted, old.count - prefix - suffix)
+    }
+
+    private func finalizeObservation(_ session: Session, textStatus: String) {
+        let observation = AttemptObservation(
+            version: 1,
+            id: session.id,
+            finalizedAt: Date(),
+            textStatus: textStatus,
+            clipboardObserved: session.clipboardCaptured,
+            accessibilityObserved: session.accessibilityCaptured,
+            frontmostAppChanged: session.frontmostAppChangedDuringObservation,
+            secureInputSeen: session.secureInputSeenDuringObservation,
+            observationWindowSeconds: Double(textObservationAttempts) * textObservationInterval,
+            speechStatus: "not_analyzed",
+            imeOutcome: "not_inferred",
+            networkStatus: "not_measured"
+        )
+        ioQueue.async { [weak self] in
+            guard let self else { return }
+            do {
+                let url = session.directoryURL.appendingPathComponent("observation.json")
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                try encoder.encode(observation).write(to: url, options: .atomic)
+                try self.secureFile(url)
+                rmDebug("🗂 corpus: observation finalized id=\(session.id.uuidString)"
+                        + " text=\(textStatus)")
+            } catch {
+                rmDebug("🗂 corpus: observation save failed id=\(session.id.uuidString): "
+                        + error.localizedDescription)
+            }
+        }
     }
 
     private func persistIME(_ observation: IMEObservation, filename: String, for session: Session) {
