@@ -1516,13 +1516,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         remoteInputHandler?.onContinuousActionBegan = {
             [weak self, weak persistentStatus, weak model] handled in
-            let corpusCandidate: Bool
+            let externalVoiceAttempt: Bool
             switch handled.action {
             case .holdKeystroke(_), .pushToTalk(_):
-                corpusCandidate = handled.key == "button.siri"
-                    && model?.tune.corpusCaptureEnabled == true
+                externalVoiceAttempt = handled.key == "button.siri"
             default:
-                corpusCandidate = false
+                externalVoiceAttempt = false
+            }
+            let corpusCandidate =
+                externalVoiceAttempt && model?.tune.corpusCaptureEnabled == true
+            if externalVoiceAttempt && !corpusCandidate {
+                // Even with capture disabled now, this new physical F10/voice attempt must close
+                // any older sample's delayed text watcher so its result cannot be mis-attributed.
+                self?.voiceCorpusRecorder?.invalidatePendingObservationForNewAttempt()
             }
             if case .pushToTalk = handled.action {
                 self?.builtinMicFeeder?.setVoiceMetering(true)
