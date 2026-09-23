@@ -149,7 +149,10 @@ Raw policy:
 - no VAD, text-presence, short-press or minimum-speech filter deletes Raw data;
 - missing text is normal observation state, not failure;
 - Raw does not infer network failure, IME failure or absence of speech;
-- starting attempt N+1 closes N's pending text-attribution watcher before N+1 can own new text;
+- starting attempt N+1 closes N's pending text-attribution watcher before N+1 can own new text,
+  even if Corpus has just been disabled or N+1 cannot create its sample directory;
+- a focus change or Secure Input appearing during the post-release observation window ends text
+  attribution immediately (`interrupted_by_focus_change` / `interrupted_by_secure_input`);
 - missing labels are preferred to wrong audio/text pairing;
 - normal App termination synchronously drains pending Corpus writes where possible.
 
@@ -164,9 +167,10 @@ These are known but intentionally outside the current first compile/smoke pass:
    F10 workflow unless the task explicitly changes scope.
 2. The App is still a monolithic swiftc target. Runtime laziness is phase 1; a later target/module
    split is the place to stop linking unused frameworks entirely.
-3. Sparkle release infrastructure is inherited. Development bundles are local builds and do not
-   schedule automatic checks; `HYPERVIBE_UPDATE_FEED_URL` exists so a future fork-owned release feed
-   can be supplied explicitly.
+3. The inherited Sparkle release infrastructure is **not trusted for this fork**. Local `-local.`
+   builds embed no feed/key and disable both scheduled and manual checks. Any future non-local
+   release must explicitly supply this fork's own `HYPERVIBE_UPDATE_FEED_URL` and
+   `HYPERVIBE_UPDATE_PUBLIC_KEY`; packaging fails otherwise.
 4. The Keychain service string `com.hypervibe.credentials.v6` is retained for compatibility for
    now; it is not the App's code-signing identity.
 
