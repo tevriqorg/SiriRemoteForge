@@ -127,10 +127,9 @@ private final class CredentialBrokerListener: NSObject, NSXPCListenerDelegate {
 
 private enum CodeSigningPeer {
     static func hostIdentifier() -> String? {
-        if let explicit = ProcessInfo.processInfo.environment["HYPERVIBE_HOST_BUNDLE_ID"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !explicit.isEmpty {
-            return explicit
+        if let raw = ProcessInfo.processInfo.environment["HYPERVIBE_HOST_BUNDLE_ID"] {
+            let explicit = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !explicit.isEmpty { return explicit }
         }
         guard let brokerID = Bundle.main.bundleIdentifier else { return nil }
         let suffix = ".CredentialBroker"
