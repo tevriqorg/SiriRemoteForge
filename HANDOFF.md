@@ -154,7 +154,11 @@ Raw policy:
 - a focus change or Secure Input appearing during the post-release observation window ends text
   attribution immediately (`interrupted_by_focus_change` / `interrupted_by_secure_input`);
 - missing labels are preferred to wrong audio/text pairing;
-- normal App termination synchronously drains pending Corpus writes where possible.
+- normal App termination synchronously drains pending Corpus writes where possible;
+- Corpus audio is streamed directly to its WAV spool instead of retaining the whole utterance PCM or
+  an unconsumed AsyncStream. `capture.json` records generated vs stored frame counts and
+  `audio_storage_status`; long thinking holds therefore grow disk usage rather than linearly
+  growing App memory.
 
 Nightly ASR/VAD/alignment belongs to a later **Analysis** layer and must not overwrite Raw files.
 
