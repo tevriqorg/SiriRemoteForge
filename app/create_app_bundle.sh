@@ -278,6 +278,10 @@ BROKER_PLIST="${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc/C
     echo "Error: generated Credential Broker identifier does not match $BROKER_BUNDLE_ID"
     exit 1
 }
+[ "$(/usr/bin/plutil -extract HyperVibeCredentialBackend raw -o - "$APP_PLIST")" = "$CREDENTIAL_BACKEND" ] || {
+    echo "Error: generated credential backend marker does not match signing mode"
+    exit 1
+}
 
 if [ "$IS_LOCAL_BUILD" = true ]; then
     for forbidden in SUFeedURL SUPublicEDKey; do
