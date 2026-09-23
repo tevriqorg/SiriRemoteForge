@@ -92,7 +92,7 @@ enum ConfigStore {
       //     coming); nothing else is affected and the plain tap is never delayed.
       // Actions: keystroke(keys) pushToTalk(keys) holdKeystroke(keys) media(key) mouse(op) launch(app|url)
       //          shell(command) applescript(script) mode(to) layer(to) layerCycle
-      //   holdKeystroke keeps its keys down from the Siri hold (after 0.2s) until release;
+      //   holdKeystroke mirrors the physical press exactly: key-down immediately, key-up on release;
       //     use it for true hold-to-talk shortcuts. Existing pushToTalk remains toggle-compatible.
       //          brightnessStep(to: up|down)
       //   layer(to): the bound key becomes a layer key — TAP it to toggle that mode sticky
