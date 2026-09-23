@@ -88,6 +88,18 @@ enum VoiceInputSelfTest {
                && staleFirstLiftIsIgnored && activeSecondLiftEnds,
                "either remote touch surface takes ownership without a stale peer lift ending it")
 
+        expect(
+            VoiceCredentialStore.backendPolicy(expected: .keychain, brokerAvailable: false)
+                == .unavailable
+            && VoiceCredentialStore.backendPolicy(expected: .keychain, brokerAvailable: true)
+                == .keychain
+            && VoiceCredentialStore.backendPolicy(expected: .localJSON, brokerAvailable: true)
+                == .localJSON
+            && VoiceCredentialStore.backendPolicy(expected: nil, brokerAvailable: false)
+                == .localJSON,
+            "packaged Keychain builds fail closed instead of falling back to plaintext credentials"
+        )
+
         let credentialTestRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("HyperVibe-Credential-Test-\(UUID().uuidString)",
                                     isDirectory: true)
