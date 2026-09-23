@@ -76,6 +76,18 @@ belong in `docs/mic-reverse-engineering.md`.
   intentionally **not** excluded from normal backup: these recordings are intended to become a
   long-lived training/evaluation asset, so silent non-backup would be a data-loss risk. Storage
   relocation, archival compression and any cloud-sync policy should be explicit later decisions.
+- Raw-attempt policy is intentionally conservative:
+  - physical press/release defines the recording boundary; no VAD, text presence, minimum speech
+    duration or short-press heuristic deletes data at capture time;
+  - no observed text is normal raw state, not failure. `observation.json` keeps
+    `speech_status=not_analyzed`, `ime_outcome=not_inferred`, and
+    `network_status=not_measured`; a later nightly analysis layer may classify silence/speech and
+    compare ASR against observed IME text without rewriting Raw;
+  - if another Side attempt begins while the previous sample is still waiting for delayed text, the
+    previous watcher is closed before the new one owns attribution. Missing labels are preferred to
+    incorrectly pairing sample N+1 text with sample N audio;
+  - normal App termination synchronously drains an active/pending capture and queued corpus writes
+    after held-key teardown. Forced kill/power loss cannot be guaranteed by an in-process recorder.
 
 ### ⚡ LATEST — 2026-09-22: disabled heavy subsystems are launch-gated (phase 1)
 
