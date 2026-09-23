@@ -118,8 +118,8 @@ older DriverKit experiment:
 - **`mic/`** — the working **virtual microphone**: a CoreAudio HAL plug-in that publishes a
   "Siri Remote Mic" input device, fed by a Bluetooth-voice router and an on-demand root daemon.
   See [🎙️ Turn the remote into a microphone](#microphone).
-- **`driverkit/`** — an earlier HIDDriverKit microphone-replacement proof of concept (superseded by
-  `mic/`; kept for reference). Build/sign scripts do not install or activate it.
+- **`deprecated/driverkit/`** — archived HIDDriverKit microphone-replacement proof of concept,
+  superseded by `mic/`. It is historical reference only and is not part of the active build.
 
 ---
 
@@ -814,12 +814,10 @@ SiriRemoteForge/
 │   ├── router/            # srm_router — decode BLE voice notifications → shared-memory ring
 │   ├── captured/          # on-demand root LaunchDaemon (runs PacketLogger + router)
 │   └── README.md
-├── dist/                  # safe, versioned app-only + Full Setup Release packaging
-└── driverkit/             # earlier Siri Remote microphone DEXT proof of concept (superseded by mic/)
-    ├── SiriRemoteMicDriver.xcodeproj
-    ├── Host/               # separate OSSystemExtensionRequest host
-    ├── build-driver.sh    # unsigned DEXT build only
-    └── build-host.sh      # embeds DEXT; does not launch or activate
+├── dist/                  # inherited release packaging; not part of the local dev smoke path
+└── deprecated/            # historical material; never authoritative for current development
+    ├── HANDOFF-legacy-upstream-2026-09-23.md
+    └── driverkit/         # superseded Siri Remote microphone DEXT proof of concept
 ```
 
 The app target is named `HyperVibe` internally (historical, from the fork below); the product is
