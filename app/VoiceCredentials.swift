@@ -81,10 +81,15 @@ enum VoiceCredentialStore {
         }
         cacheLock.unlock()
 
-        let value = backendPolicy(
-            expected: packagedBackendExpectation(),
-            brokerAvailable: VoiceCredentialBrokerClient.shared.isAvailable
-        )
+        let expected = packagedBackendExpectation()
+        let brokerAvailable: Bool
+        switch expected {
+        case .localJSON, .unavailable:
+            brokerAvailable = false
+        case .keychain, nil:
+            brokerAvailable = VoiceCredentialBrokerClient.shared.isAvailable
+        }
+        let value = backendPolicy(expected: expected, brokerAvailable: brokerAvailable)
 
         cacheLock.lock()
         if resolvedStorageBackend == nil { resolvedStorageBackend = value }
@@ -140,7 +145,11 @@ enum VoiceCredentialStore {
         }
         let brokerResults = backend == .keychain
             ? VoiceCredentialBrokerClient.shared.readAll() : nil
-        let localResults = backend == .localJSON
+        // A valid certificate-bound build may still read the old public-beta JSON as a migration
+        // source when the Keychain item is absent. The critical boundary is broker validation:
+        // if the packaged build expected Keychain and that broker is invalid, we returned above
+        // and never consult plaintext storage.
+        let localResults = (backend == .keychain || backend == .localJSON)
             ? (try? LocalJSONCredentialStore.shared.readAll()) : nil
 
         cacheLock.lock()
