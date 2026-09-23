@@ -93,7 +93,7 @@ final class VoiceCorpusRecorder {
         let accessibilityObserved: Bool
         let frontmostAppChanged: Bool
         let secureInputSeen: Bool
-        let observationWindowSeconds: Double
+        let observationWindowLimitSeconds: Double
         let speechStatus: String
         let imeOutcome: String
         let networkStatus: String
@@ -106,7 +106,7 @@ final class VoiceCorpusRecorder {
             case accessibilityObserved = "accessibility_observed"
             case frontmostAppChanged = "frontmost_app_changed"
             case secureInputSeen = "secure_input_seen"
-            case observationWindowSeconds = "observation_window_seconds"
+            case observationWindowLimitSeconds = "observation_window_limit_seconds"
             case speechStatus = "speech_status"
             case imeOutcome = "ime_outcome"
             case networkStatus = "network_status"
@@ -150,9 +150,9 @@ final class VoiceCorpusRecorder {
 
     var isRecording: Bool { active != nil }
 
-    /// Begin one external voice sample. Call only after the side-button hold has genuinely
-    /// promoted to a continuous action; the existing 0.2 s accidental-touch guard therefore
-    /// remains authoritative and quick taps never create empty corpus entries.
+    /// Begin one external voice sample on the same raw press edge that starts the held shortcut.
+    /// There is intentionally no duration/speech/text gate: even a very short press, silence, or
+    /// an IME/network failure remains a valid raw attempt for later analysis.
     func begin(_ handled: Controller.HandledAction) {
         guard active == nil else {
             rmDebug("🗂 corpus: ignored overlapping begin for \(handled.key)")
@@ -236,7 +236,7 @@ final class VoiceCorpusRecorder {
         let endedAt = Date()
         let watchGeneration = clipboardWatchGeneration
         pendingObservation = session
-        watchClipboard(for: session, generation: watchGeneration, attempt: 0)
+        watchTextObservations(for: session, generation: watchGeneration, attempt: 0)
 
         Task { [weak self] in
             let audio = await session.capture.stop()
@@ -319,7 +319,7 @@ final class VoiceCorpusRecorder {
     /// hundred milliseconds later. Clipboard and Accessibility are independent observations: when
     /// both are available we keep both, allowing later offline alignment to decide which is useful.
     /// A new utterance invalidates the previous watch so text from sample N+1 cannot attach to N.
-    private func watchClipboard(for session: Session, generation: Int, attempt: Int) {
+    private func watchTextObservations(for session: Session, generation: Int, attempt: Int) {
         guard generation == clipboardWatchGeneration else { return }
 
         let secureInput = IsSecureEventInputEnabled()
@@ -400,7 +400,7 @@ final class VoiceCorpusRecorder {
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + textObservationInterval) { [weak self] in
-            self?.watchClipboard(for: session, generation: generation, attempt: attempt + 1)
+            self?.watchTextObservations(for: session, generation: generation, attempt: attempt + 1)
         }
     }
 
@@ -437,7 +437,7 @@ final class VoiceCorpusRecorder {
             accessibilityObserved: session.accessibilityCaptured,
             frontmostAppChanged: session.frontmostAppChangedDuringObservation,
             secureInputSeen: session.secureInputSeenDuringObservation,
-            observationWindowSeconds: Double(textObservationAttempts) * textObservationInterval,
+            observationWindowLimitSeconds: Double(textObservationAttempts) * textObservationInterval,
             speechStatus: "not_analyzed",
             imeOutcome: "not_inferred",
             networkStatus: "not_measured"
