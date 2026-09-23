@@ -131,6 +131,13 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
         }
     }
 
+    /// Termination-only drain. Normal callers must use async `stop()`; AppDelegate invokes this
+    /// from the main thread while the process is shutting down so queued PCM is not abandoned before
+    /// the asynchronous corpus writer gets a chance to run.
+    func stopBlockingForTermination() -> VoiceCapturedAudio {
+        queue.sync { stopOnQueue() }
+    }
+
     func excludeAcousticFeedback(for duration: TimeInterval) {
         guard duration.isFinite, duration > 0 else { return }
         let now = DispatchTime.now().uptimeNanoseconds
