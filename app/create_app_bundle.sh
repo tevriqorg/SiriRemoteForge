@@ -342,7 +342,51 @@ CODESIGN_KEYCHAIN_ARGS=()
 if [ "$SIGN_MODE" = "developer" ]; then
     DEV_IDENTITY_HASHES=()
     DEV_IDENTITY_LABELS=()
-    while IFS=
+    while IFS='|' read -r identity_hash identity_label; do
+        [ -n "$identity_hash" ] || continue
+        DEV_IDENTITY_HASHES+=("$identity_hash")
+        DEV_IDENTITY_LABELS+=("$identity_label")
+    done < <(
+        security find-identity -v -p codesigning 2>/dev/null \
+            | sed -n 's/^[[:space:]]*[0-9][0-9]*) \([0-9A-Fa-f]*\) "\(Apple Development:.*\)"$/\1|\2/p'
+    )
+
+    if [ "${#DEV_IDENTITY_HASHES[@]}" -eq 0 ]; then
+        echo "Error: no valid Apple Development signing identity was found."
+        exit 1
+    fi
+
+    if [ -z "$SIGN_ID" ]; then
+        if [ "${#DEV_IDENTITY_HASHES[@]}" -ne 1 ]; then
+            echo "Error: multiple Apple Development signing identities are available:"
+            for i in "${!DEV_IDENTITY_HASHES[@]}"; do
+                printf '  %s  %s\n' "${DEV_IDENTITY_HASHES[$i]}" "${DEV_IDENTITY_LABELS[$i]}"
+            done
+            echo "Set HYPERVIBE_SIGN_ID to the exact certificate hash or full identity label."
+            exit 1
+        fi
+        SIGN_ID="${DEV_IDENTITY_HASHES[0]}"
+        SIGN_LABEL="${DEV_IDENTITY_LABELS[0]}"
+    else
+        MATCH_HASHES=()
+        MATCH_LABELS=()
+        for i in "${!DEV_IDENTITY_HASHES[@]}"; do
+            if [ "$SIGN_ID" = "${DEV_IDENTITY_HASHES[$i]}" ] \
+                || [ "$SIGN_ID" = "${DEV_IDENTITY_LABELS[$i]}" ]; then
+                MATCH_HASHES+=("${DEV_IDENTITY_HASHES[$i]}")
+                MATCH_LABELS+=("${DEV_IDENTITY_LABELS[$i]}")
+            fi
+        done
+        if [ "${#MATCH_HASHES[@]}" -ne 1 ]; then
+            echo "Error: HYPERVIBE_SIGN_ID must resolve to exactly one valid Apple Development identity."
+            exit 1
+        fi
+        SIGN_ID="${MATCH_HASHES[0]}"
+        SIGN_LABEL="${MATCH_LABELS[0]}"
+    fi
+
+    echo "Signing development build with: $SIGN_LABEL [$SIGN_ID]"
+elif [ "$SIGN_MODE" = "adhoc" ]; then
     SIGN_ID="-"
     echo "Ad-hoc signing (explicit public/release artifact only)..."
 else
