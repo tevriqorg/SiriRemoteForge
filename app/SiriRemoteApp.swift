@@ -2014,9 +2014,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// SwiftUI toggle. This keeps the live window, GUI and hot-reloaded JSON on one value.
     private func ensureVoiceCorpusRecorder() -> VoiceCorpusRecorder {
         if let voiceCorpusRecorder { return voiceCorpusRecorder }
-        let model = settingsModel
-        let recorder = VoiceCorpusRecorder(onStorageStatus: { [weak model] message in
-            model?.corpusStorageError = message
+        let recorder = VoiceCorpusRecorder(onStorageStatus: { [weak self] message in
+            self?.settingsModel?.corpusStorageError = message
         })
         voiceCorpusRecorder = recorder
         return recorder
