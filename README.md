@@ -201,11 +201,12 @@ migration and may require granting TCC permissions again.
 
 ### Software updates
 
-Packaged release builds can use Sparkle for updates. Local `-local.` development builds do not
-schedule automatic checks, and this fork's feed URL is configurable with
-`HYPERVIBE_UPDATE_FEED_URL`. A manual **Check for Updates…** remains available for an explicitly
-configured feed.
-Sparkle verifies every archive against the Ed25519 public key embedded in the app before extraction.
+Packaged release builds can use Sparkle for updates. Local `-local.` development builds disable
+Sparkle entirely, including manual checks, and do not embed a feed URL or update public key.
+A non-local release build must explicitly provide this fork's own `HYPERVIBE_UPDATE_FEED_URL` and
+`HYPERVIBE_UPDATE_PUBLIC_KEY`; packaging fails if either is missing. Do not reuse the inherited
+upstream appcast/key for this fork. Sparkle verifies every archive against the explicitly supplied
+Ed25519 public key before extraction.
 The updater replaces only `HyperVibe.app`, so ordinary updates neither restart system audio nor ask
 for an administrator password. Full Setup remains a separate manual download for installing or
 refreshing the virtual microphone stack.
