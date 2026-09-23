@@ -53,6 +53,9 @@ These rules apply to the tevriqorg development fork. Historical upstream rules l
    - `cd app && ./build.sh`;
    - package with Apple Development signing and run strict nested `codesign --verify`.
 4. GitHub issues, comments and commits made for this fork end with `By ChatGPT`.
+5. Local `-local.` builds must not embed or contact a Sparkle feed. A non-local release package must
+   supply both `HYPERVIBE_UPDATE_FEED_URL` and `HYPERVIBE_UPDATE_PUBLIC_KEY`, owned by this fork;
+   never reuse the inherited upstream appcast/key.
 
 Public release signing/notarization is a separate workflow and must not be inferred from the local
 Apple Development workflow.
