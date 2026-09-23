@@ -17,6 +17,15 @@ UPDATE_PUBLIC_KEY="${HYPERVIBE_UPDATE_PUBLIC_KEY:-}"
 SIGN_MODE="${HYPERVIBE_SIGN_MODE:-developer}"
 SPARKLE_ROOT="$(./prepare_sparkle.sh)"
 
+case "$SIGN_MODE" in
+    developer) CREDENTIAL_BACKEND="keychain" ;;
+    adhoc) CREDENTIAL_BACKEND="local-json" ;;
+    *)
+        echo "Error: HYPERVIBE_SIGN_MODE must be 'developer' or 'adhoc', got: $SIGN_MODE"
+        exit 1
+        ;;
+esac
+
 IS_LOCAL_BUILD=false
 case "$RELEASE_VERSION" in
     *-local.*) IS_LOCAL_BUILD=true ;;
@@ -68,8 +77,14 @@ case "$APP_BUNDLE" in
         ;;
 esac
 
+APP_PARENT="$(dirname "$APP_BUNDLE")"
+APP_BASENAME="$(basename "$APP_BUNDLE")"
+mkdir -p -- "$APP_PARENT"
+APP_PARENT_CANONICAL="$(cd "$APP_PARENT" && pwd -P)"
+APP_BUNDLE_CANONICAL="$APP_PARENT_CANONICAL/$APP_BASENAME"
+
 if [ "$SIGN_MODE" = "developer" ]; then
-    case "$APP_BUNDLE" in
+    case "$APP_BUNDLE_CANONICAL" in
         /Applications|/Applications/*)
             echo "Error: developer packaging must stage outside /Applications."
             echo "Build/sign/verify first; installation is a separate rollback-protected step."
@@ -77,10 +92,16 @@ if [ "$SIGN_MODE" = "developer" ]; then
             ;;
     esac
 fi
+case "$APP_BUNDLE_CANONICAL" in
+    /|"$HOME"|"$PWD")
+        echo "Error: refusing destructive bundle path: $APP_BUNDLE_CANONICAL"
+        exit 1
+        ;;
+esac
 
+APP_BUNDLE="$APP_BUNDLE_CANONICAL"
 echo "Creating clean app bundle: $APP_BUNDLE"
-mkdir -p "$(dirname "$APP_BUNDLE")"
-rm -rf "$APP_BUNDLE"
+/bin/rm -rf -- "$APP_BUNDLE"
 
 # Create bundle structure
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
@@ -155,6 +176,8 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<EOF
 	<string>$APP_VERSION</string>
 	<key>HyperVibeReleaseVersion</key>
 	<string>$RELEASE_VERSION</string>
+	<key>HyperVibeCredentialBackend</key>
+	<string>$CREDENTIAL_BACKEND</string>
 	<key>CFBundleIconFile</key>
 	<string>HyperVibe</string>
 	<key>NSHumanReadableCopyright</key>
