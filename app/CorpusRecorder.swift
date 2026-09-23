@@ -165,6 +165,8 @@ final class VoiceCorpusRecorder {
         // This must happen even if the new sample later cannot be persisted.
         invalidatePendingObservationForNewAttempt()
 
+        let id = UUID()
+        let startedAt = Date()
         let app = NSWorkspace.shared.frontmostApplication
         let pasteboard = NSPasteboard.general
 
@@ -178,8 +180,6 @@ final class VoiceCorpusRecorder {
         )
         capture.start()
 
-        let id = UUID()
-        let startedAt = Date()
         let directoryURL = sampleDirectory(id: id, date: startedAt)
         do {
             try prepareDirectory(directoryURL)
