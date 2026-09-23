@@ -44,10 +44,12 @@ belong in `docs/mic-reverse-engineering.md`.
   **off by default** because enabling it persistently stores microphone audio and observed IME text.
 - New setting: `settings.corpusCaptureEnabled`, exposed in Settings → Voice as **Record external
   voice corpus**. It can be toggled live and is persisted in `config.jsonc`.
-- Scope is intentionally narrow: only a promoted continuous `button.siri` action whose resolved
-  action is `holdKeystroke` or `pushToTalk` is recorded. Quick taps never create a sample because
-  recording begins from the existing `onContinuousActionBegan` callback, after the 0.2 s promotion
-  guard. The live `holdKeystroke(f10)` external-WeChat route itself is unchanged.
+- Scope is intentionally narrow: only a continuous `button.siri` action whose resolved action is
+  `holdKeystroke` or `pushToTalk` is recorded. `holdKeystroke` now mirrors the physical button
+  directly: raw press → immediate key-down and Corpus begin, raw release → immediate key-up and
+  Corpus end. There is no 0.2 s promotion gate for held shortcuts. Very short presses are preserved
+  as raw attempts rather than filtered at capture time. `pushToTalk` / Native Voice retain their
+  separate promotion semantics.
 - While a corpus sample is active, the App raises the existing `BuiltinMicFeeder.setVoiceMetering`
   demand so the privileged remote-audio path can wake even though the hold never enters
   `VoiceDictationCoordinator`. `VoiceAudioCaptureSession` then selects the live Siri Remote ring
@@ -57,12 +59,15 @@ belong in `docs/mic-reverse-engineering.md`.
   `~/Library/Application Support/HyperVibe/Corpus/YYYY-MM-DD/<time-id>/`:
   - `audio.wav` — mono PCM16 at the existing Voice capture sample rate;
   - `capture.json` — immutable capture facts (id/times/app/action/audio source/rate/frames/duration);
+  - `observation.json` — raw post-release observation state. `text_status` is `observed`,
+    `not_observed`, or `interrupted_by_next_attempt`; speech remains `not_analyzed`, IME outcome
+    remains `not_inferred`, and network remains `not_measured` at capture time;
   - `ime.clipboard.json` — written only when the general pasteboard changes after this utterance;
   - `ime.accessibility.json` — written when the original focused AX text field exposes a readable
     value and the post-utterance value yields a non-empty changed span. Only that changed span and
     replacement length are persisted; the field's pre-existing text is never written to disk.
 - Clipboard and Accessibility are independent observations rather than competing truth sources.
-  Clipboard is polled for up to 2 s after release, but accepted only while the original frontmost
+  Clipboard is polled for up to 5 s after release, but accepted only while the original frontmost
   app is still frontmost and Secure Input is off; AX uses the same app/Secure-Input boundary and is
   sampled only four times to avoid repeated synchronous cross-process IPC. Secure text fields are
   excluded. A new utterance invalidates the older pending watch so sample N+1 cannot be attached to
@@ -120,8 +125,8 @@ belong in `docs/mic-reverse-engineering.md`.
   - `holdKeystroke` — one real key-down, held for the whole press.
   A genuine hold-to-talk shortcut no longer has to be expressed as a toggle pair.
 - Routing is branch **2** of `RemoteInputHandler.routeButton`, immediately after Spaces Mode and
-  before push-to-talk. Promotion waits out the same `pushToTalkActivationDelay` (0.2 s) accidental-
-  touch boundary; a release before it cancels silently. The combo is captured at press time, so a
+  before push-to-talk. It now has **no activation delay**: `Keys.holdBegin` runs on the raw press
+  edge and `Keys.holdEnd` on the matching release. The combo is captured at press time, so a
   layer switch, an app/mode change, or a config hot-reload mid-hold cannot orphan the key-up.
   `stopHeldKeystroke` is called from `endPressScopedWork`, from remote disconnect, and via
   `stopAllHeldKeystrokes` — per the bug class below, press-scoped state must be released on EVERY
