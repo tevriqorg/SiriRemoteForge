@@ -194,10 +194,16 @@ struct SettingsView: View {
                 Toggle(isOn: $model.tune.corpusCaptureEnabled) {
                     rowLabel(L("Record external voice corpus"), "waveform.badge.plus")
                 }
+                if let error = model.corpusStorageError {
+                    Label(error, systemImage: "externaldrive.badge.exclamationmark")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                }
             } header: {
                 Text(L("Voice Corpus"))
             } footer: {
-                Text(L("When enabled, each Side-button external voice attempt is saved from physical press to release as raw audio plus capture metadata, including very short presses and no-text attempts. Clipboard and Accessibility text observations are stored separately when available; missing text is not treated as failure. Native Voice does not need to be enabled."))
+                Text(L("When enabled, each Side-button external voice attempt is saved from physical press to release as raw audio plus capture metadata, including very short presses and no-text attempts. Clipboard is preserved only as unattributed Raw evidence; only a re-verified Accessibility target can mark text as observed. Missing text is not treated as failure. Native Voice does not need to be enabled."))
             }
 
             Section {
@@ -325,6 +331,9 @@ struct SettingsView: View {
                     Text(L("Keys are stored in the macOS Keychain with this-device-only protection. On first save, choose Always Allow once for HyperVibe's fixed credential helper; normal App updates will not ask again. Keys are never written to config.jsonc, logs, the app bundle, or Git."))
                 } else if voiceCredentials.storageBackend == .localJSON {
                     Text(L("Keys are saved as plaintext in a current-user-only credentials.json file for this public beta. Only HyperVibe Settings provides a supported way to write it. Keys are never written to config.jsonc, logs, the app bundle, or Git."))
+                } else if voiceCredentials.storageBackend == .unavailable {
+                    Text(L("Credential Broker validation failed. This signed build is refusing to fall back to plaintext credential storage. Rebuild or re-sign the App and Broker together."))
+                        .foregroundStyle(.red)
                 } else {
                     Text(L("Checking local credential storage…"))
                 }
