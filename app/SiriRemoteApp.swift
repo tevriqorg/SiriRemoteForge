@@ -1545,8 +1545,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.builtinMicFeeder?.setVoiceMetering(true)
             }
             if corpusCandidate {
-                if self?.voiceCorpusRecorder == nil { self?.voiceCorpusRecorder = VoiceCorpusRecorder() }
-                self?.voiceCorpusRecorder?.begin(handled)
+                self?.ensureVoiceCorpusRecorder().begin(handled)
             }
             persistentStatus?.beginContinuousAction(handled)
         }
@@ -1843,10 +1842,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         remoteInputHandler?.spacesModeWindow = t.spacesModeWindow
         findCursorEnabled = t.findCursorEnabled
         if t.corpusCaptureEnabled, voiceCorpusRecorder == nil {
-            voiceCorpusRecorder = VoiceCorpusRecorder()
-            if let root = voiceCorpusRecorder?.rootURL.path {
-                rmDebug("🗂 corpus: enabled root=\(root)")
-            }
+            let recorder = ensureVoiceCorpusRecorder()
+            rmDebug("🗂 corpus: enabled root=\(recorder.rootURL.path)")
         }
         Loc.shared.apply(configValue: t.interfaceLanguage)
         // Visual-QC only: render the installed App in another supported language without writing
@@ -2015,6 +2012,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Menu-bar and in-window context-menu requests travel through the same Settings model as the
     /// SwiftUI toggle. This keeps the live window, GUI and hot-reloaded JSON on one value.
+    private func ensureVoiceCorpusRecorder() -> VoiceCorpusRecorder {
+        if let voiceCorpusRecorder { return voiceCorpusRecorder }
+        let model = settingsModel
+        let recorder = VoiceCorpusRecorder(onStorageStatus: { [weak model] message in
+            model?.corpusStorageError = message
+        })
+        voiceCorpusRecorder = recorder
+        return recorder
+    }
+
     @MainActor
     private func ensureUpdateManager() -> UpdateManager? {
         guard let model = settingsModel else { return nil }
