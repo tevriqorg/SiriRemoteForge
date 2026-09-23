@@ -515,7 +515,6 @@ final class VoiceCorpusRecorder {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
             try encoder.encode(record).write(to: recordURL, options: .atomic)
             try secureFile(recordURL)
-            if storage.status == "complete" { reportStorageHealthy() }
             rmDebug("🗂 corpus: saved id=\(session.id.uuidString) "
                     + "source=\(audio.source.rawValue) duration=\(String(format: "%.2f", audio.duration))s "
                     + "storage=\(storage.status) frames=\(storage.storedFrameCount)/\(audio.frameCount)")
@@ -797,11 +796,6 @@ final class VoiceCorpusRecorder {
         rmDebug("🗂 corpus storage failure: \(message)")
         let callback = onStorageStatus
         DispatchQueue.main.async { callback(message) }
-    }
-
-    private func reportStorageHealthy() {
-        let callback = onStorageStatus
-        DispatchQueue.main.async { callback(nil) }
     }
 
     private func secureFile(_ url: URL) throws {
