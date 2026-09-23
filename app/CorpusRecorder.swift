@@ -336,12 +336,25 @@ final class VoiceCorpusRecorder {
         let secureInput = IsSecureEventInputEnabled()
         let sameFrontmostApp =
             NSWorkspace.shared.frontmostApplication?.processIdentifier == session.applicationPID
-        if secureInput { session.secureInputSeenDuringObservation = true }
-        if !sameFrontmostApp { session.frontmostAppChangedDuringObservation = true }
 
-        if !session.clipboardCaptured,
-           !secureInput,
-           sameFrontmostApp {
+        if secureInput {
+            session.secureInputSeenDuringObservation = true
+            let status = session.clipboardCaptured || session.accessibilityCaptured
+                ? "observed" : "interrupted_by_secure_input"
+            finalizeObservation(session, textStatus: status)
+            if pendingObservation === session { pendingObservation = nil }
+            return
+        }
+        if !sameFrontmostApp {
+            session.frontmostAppChangedDuringObservation = true
+            let status = session.clipboardCaptured || session.accessibilityCaptured
+                ? "observed" : "interrupted_by_focus_change"
+            finalizeObservation(session, textStatus: status)
+            if pendingObservation === session { pendingObservation = nil }
+            return
+        }
+
+        if !session.clipboardCaptured {
             let pasteboard = NSPasteboard.general
             if pasteboard.changeCount != session.clipboardBaselineChangeCount,
                let text = pasteboard.string(forType: .string),
@@ -365,7 +378,6 @@ final class VoiceCorpusRecorder {
         // the 100 ms clipboard poll into repeated cross-process IPC. We only persist the minimal
         // changed span, never the before/after field values.
         if !session.accessibilityCaptured,
-           !secureInput,
            [2, 5, 10, 20, 35, 50].contains(attempt),
            let target = session.textTarget,
            let before = target.valueBeforeInsertion,
