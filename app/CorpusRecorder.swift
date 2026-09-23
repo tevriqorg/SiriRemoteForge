@@ -335,8 +335,7 @@ final class VoiceCorpusRecorder {
            sameFrontmostApp {
             let pasteboard = NSPasteboard.general
             if pasteboard.changeCount != session.clipboardBaselineChangeCount,
-               let text = pasteboard.string(forType: .string)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
+               let text = pasteboard.string(forType: .string),
                !text.isEmpty, text.count <= 100_000 {
                 session.clipboardCaptured = true
                 let observation = IMEObservation(
@@ -424,7 +423,6 @@ final class VoiceCorpusRecorder {
         let newEnd = new.count - suffix
         guard prefix <= newEnd else { return nil }
         let inserted = String(new[prefix..<newEnd])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !inserted.isEmpty else { return nil }
         return (inserted, old.count - prefix - suffix)
     }
