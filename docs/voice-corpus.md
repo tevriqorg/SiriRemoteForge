@@ -41,10 +41,14 @@ Mono PCM16 produced by the existing `VoiceAudioCaptureSession`. The capture choo
 Remote ring when available and otherwise falls back to the built-in microphone ring. The chosen
 source is recorded in `capture.json`.
 
-Corpus does **not** retain the full utterance PCM in memory. After the brief source probe, PCM chunks
-are appended directly to `audio.wav`; the WAV header is finalized on release/normal shutdown. This
-keeps long thinking/silence holds bounded in App memory rather than growing roughly 48 KB/s at
-24 kHz mono PCM16. Native Voice keeps its existing in-memory/AsyncStream behavior and is unaffected.
+Corpus does **not** retain the full utterance PCM in memory. Capture/state ownership is established
+on the physical press edge, while sample-directory creation and the initial Accessibility probe are
+dispatched away from the input callback. The first chunks may buffer briefly until the WAV spool is
+ready; after that PCM is appended directly to `audio.wav` and the WAV header is finalized on
+release/normal shutdown. A filesystem-preparation failure stops accepting buffered chunks and is
+surfaced in Settings. This keeps long thinking/silence holds bounded in App memory rather than
+growing roughly 48 KB/s at 24 kHz mono PCM16. Native Voice keeps its existing in-memory/AsyncStream
+behavior and is unaffected.
 
 `capture.json` records both generated and actually persisted audio frames:
 - `frame_count`: frames produced by the capture session;
@@ -75,15 +79,20 @@ Best-effort observation only. Written when the pasteboard changes after the atte
 - the application that was frontmost at attempt start is still frontmost; and
 - Secure Input is not active.
 
-A clipboard observation is evidence, not automatically ground truth. The observed string is stored
-verbatim; capture-time code does not trim leading/trailing whitespace or newlines.
+A clipboard observation is evidence, not automatically ground truth. Because the pasteboard is
+global, every such file is marked `attribution_status = unattributed_observation`; clipboard alone
+can never make `text_status = observed`. The observed string is stored verbatim; capture-time code
+does not trim leading/trailing whitespace or newlines.
 
 ### ime.accessibility.json
 
 Best-effort observation only. When the original focused text field exposes readable Accessibility
-text, HyperVibe stores only the changed span after the attempt. The field's pre-existing contents are
-never persisted. The changed span is stored verbatim rather than normalized. Secure fields and
-Secure Input are excluded.
+text, HyperVibe re-resolves the focused target after release and accepts a changed span only when it
+is the same AX node or a compatible semantic/geometric replacement of that editor. Verified files
+are marked `attribution_status = target_verified`. The field's pre-existing contents are never
+persisted. The changed span is stored verbatim rather than normalized. Secure Input / secure-field
+detection happens before selection or value reads, so secure targets are excluded rather than
+sampled.
 
 ### observation.json
 
@@ -95,6 +104,7 @@ Final raw observation state. Typical fields include:
   "clipboard_observed": false,
   "accessibility_observed": false,
   "frontmost_app_changed": false,
+  "focus_target_changed": false,
   "secure_input_seen": false,
   "speech_status": "not_analyzed",
   "ime_outcome": "not_inferred",
@@ -104,10 +114,10 @@ Final raw observation state. Typical fields include:
 
 `text_status` is observational, not evaluative:
 
-- `observed`: at least one text source was observed;
-- `not_observed`: no text source was observed within the configured post-release window;
+- `observed`: target-verified Accessibility text was observed;
+- `not_observed`: no target-verified text was observed within the configured post-release window;
 - `interrupted_by_next_attempt`: a newer physical attempt took ownership of text attribution first;
-- `interrupted_by_focus_change`: another app became frontmost before text was observed;
+- `interrupted_by_focus_change`: another app became frontmost or the focused editor changed before verified text was observed;
 - `interrupted_by_secure_input`: Secure Input appeared before text was observed;
 - `interrupted_by_app_termination`: the App shut down while the attempt/observation was still open.
 
@@ -130,8 +140,9 @@ A missing label is safer than a wrong label.
 After release, text is observed for a bounded window. If a new Side attempt begins before the
 previous window completes, the previous watcher is finalized before the new attempt owns
 attribution — even if Corpus has just been switched off or the new sample cannot be persisted.
-A frontmost-app change or Secure Input also closes attribution immediately. Text from sample N+1
-must never be attached to audio from sample N.
+A frontmost-app change, focused-editor change, or Secure Input closes attribution immediately.
+A global clipboard change remains useful Raw evidence but is never sufficient attribution on its
+own. Text from sample N+1 must never be attached to audio from sample N.
 
 ## Raw → Analysis → Dataset
 
