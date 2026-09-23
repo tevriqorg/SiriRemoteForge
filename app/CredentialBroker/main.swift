@@ -108,7 +108,8 @@ private final class CredentialBrokerListener: NSObject, NSXPCListenerDelegate {
     private let requiredClient: String?
 
     override init() {
-        requiredClient = CodeSigningPeer.requirement(identifier: "com.hypervibe.app")
+        requiredClient = CodeSigningPeer.hostIdentifier()
+            .flatMap { CodeSigningPeer.requirement(identifier: $0) }
         super.init()
     }
 
@@ -125,6 +126,18 @@ private final class CredentialBrokerListener: NSObject, NSXPCListenerDelegate {
 }
 
 private enum CodeSigningPeer {
+    static func hostIdentifier() -> String? {
+        if let explicit = ProcessInfo.processInfo.environment["HYPERVIBE_HOST_BUNDLE_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            return explicit
+        }
+        guard let brokerID = Bundle.main.bundleIdentifier else { return nil }
+        let suffix = ".CredentialBroker"
+        guard brokerID.hasSuffix(suffix) else { return nil }
+        return String(brokerID.dropLast(suffix.count))
+    }
+
     static func requirement(identifier: String) -> String? {
         var ownCode: SecCode?
         guard SecCodeCopySelf([], &ownCode) == errSecSuccess, let ownCode else { return nil }
@@ -283,7 +296,8 @@ private enum CredentialBrokerMain {
     }
 
     private static func trustedParent() -> Bool {
-        guard let requirementText = CodeSigningPeer.requirement(identifier: "com.hypervibe.app")
+        guard let hostID = CodeSigningPeer.hostIdentifier(),
+              let requirementText = CodeSigningPeer.requirement(identifier: hostID)
         else { return false }
         var requirement: SecRequirement?
         guard SecRequirementCreateWithString(
