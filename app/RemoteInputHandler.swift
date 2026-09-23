@@ -310,9 +310,9 @@ class RemoteInputHandler {
     /// would leave it latched on. Closed by the release edge or by `endPressScopedWork`.
     private var pushToTalkOpen: [String: String] = [:]
     /// Held external shortcuts currently down: buttonName → the combo parsed at press time.
-    /// Unlike `pushToTalk`, this is a real key lifecycle: holdBegin on promotion, holdEnd on release.
+    /// Unlike `pushToTalk`, this is a real physical key lifecycle: holdBegin runs on the raw
+    /// press edge and holdEnd runs on the matching release. There is deliberately no time gate.
     private var heldKeystrokes: [String: KeyMap.Combo] = [:]
-    private var heldKeystrokePending: [String: DispatchWorkItem] = [:]
     /// Push-to-talk presses whose ACTIVATION delay has not yet elapsed: buttonName → the scheduled
     /// opener. A too-quick tap (released before `pushToTalkActivationDelay`) cancels this and fires
     /// nothing, so a brush of the button can't toggle dictation on; holding past the delay fires the
@@ -1006,10 +1006,10 @@ class RemoteInputHandler {
             }
         }
 
-        // 2) Held external keystroke: use the same 0.2s accidental-touch boundary as pushToTalk,
-        //    but keep the configured combo genuinely down until the physical Siri release. The
-        //    combo is captured at press time so mode/layer/config changes cannot orphan its key-up.
-        if !pressed && (heldKeystrokePending[buttonName] != nil || heldKeystrokes[buttonName] != nil) {
+        // 2) Held external keystroke: a true held shortcut mirrors the physical button exactly.
+        //    Press posts key-down immediately; release posts key-up immediately. The combo is
+        //    captured at press time so layer/config/app changes cannot orphan its release.
+        if !pressed && heldKeystrokes[buttonName] != nil {
             stopHeldKeystroke(buttonName)
             return
         }
@@ -1019,19 +1019,10 @@ class RemoteInputHandler {
                 action: .holdKeystroke(keys: keys),
                 presentation: controller.resolvedPresentation(for: tapKey)
             )
-            heldKeystrokePending.removeValue(forKey: buttonName)?.cancel()
-            let activationDeadline = DispatchTime.now() + pushToTalkActivationDelay
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.heldKeystrokePending.removeValue(forKey: buttonName)
-                guard self.remoteButtonState.isPressed(buttonName) else { return }
-                guard let held = Keys.holdBegin(keys) else { return }
-                self.heldKeystrokes[buttonName] = held
-                self.onContinuousActionBegan?(handled)
-                print("🔘 \(tapKey) → holdKeystroke '\(keys)' (press edge, +\(self.pushToTalkActivationDelay)s)")
-            }
-            heldKeystrokePending[buttonName] = work
-            DispatchQueue.main.asyncAfter(deadline: activationDeadline, execute: work)
+            guard let held = Keys.holdBegin(keys) else { return }
+            heldKeystrokes[buttonName] = held
+            onContinuousActionBegan?(handled)
+            print("🔘 \(tapKey) → holdKeystroke '\(keys)' (raw press edge)")
             return
         }
 
@@ -1702,10 +1693,9 @@ class RemoteInputHandler {
         }
     }
 
-    /// Release a held external shortcut and cancel a not-yet-promoted opener. Safe on every
-    /// teardown path, including a release swallowed by a guard or a remote disconnect.
+    /// Release a held external shortcut. Safe on every teardown path, including a release swallowed
+    /// by a guard or a remote disconnect.
     private func stopHeldKeystroke(_ buttonName: String) {
-        heldKeystrokePending.removeValue(forKey: buttonName)?.cancel()
         if let held = heldKeystrokes.removeValue(forKey: buttonName) {
             Keys.holdEnd(held)
             onContinuousActionEnded?(RemoteInputHandler.configKey(for: buttonName))
@@ -1714,7 +1704,7 @@ class RemoteInputHandler {
     }
 
     private func stopAllHeldKeystrokes() {
-        for name in Set(heldKeystrokePending.keys).union(heldKeystrokes.keys) {
+        for name in heldKeystrokes.keys {
             stopHeldKeystroke(name)
         }
     }
