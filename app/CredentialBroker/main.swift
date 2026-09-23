@@ -115,10 +115,11 @@ private final class CredentialBrokerListener: NSObject, NSXPCListenerDelegate {
 
     func listener(_ listener: NSXPCListener,
                   shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
-        guard connection.effectiveUserIdentifier == getuid() else { return false }
+        guard connection.effectiveUserIdentifier == getuid(),
+              let requiredClient else { return false }
         connection.exportedInterface = NSXPCInterface(with: VoiceCredentialBrokerProtocol.self)
         connection.exportedObject = service
-        if let requiredClient { connection.setCodeSigningRequirement(requiredClient) }
+        connection.setCodeSigningRequirement(requiredClient)
         connection.resume()
         return true
     }
@@ -154,8 +155,11 @@ private enum CodeSigningPeer {
         let replaced = text.replacingCharacters(
             in: range, with: "identifier \"\(identifier)\""
         )
-        if replaced.contains("certificate leaf") { return replaced }
-        return "identifier \"\(identifier)\""
+        // Never weaken a credential boundary to identifier-only validation. Development builds
+        // use Apple Development signing, whose designated requirement is certificate-bound. Public
+        // ad-hoc builds therefore cannot use this broker and must stay on the non-Keychain fallback.
+        guard replaced.contains("certificate leaf") else { return nil }
+        return replaced
     }
 }
 
