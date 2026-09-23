@@ -197,7 +197,7 @@ struct SettingsView: View {
             } header: {
                 Text(L("Voice Corpus"))
             } footer: {
-                Text(L("When enabled, each promoted Side-button external voice hold is saved locally as WAV plus capture metadata. If the input method changes the clipboard after that utterance, HyperVibe stores the observed text separately. Native Voice does not need to be enabled."))
+                Text(L("When enabled, each Side-button external voice attempt is saved from physical press to release as raw audio plus capture metadata, including very short presses and no-text attempts. Clipboard and Accessibility text observations are stored separately when available; missing text is not treated as failure. Native Voice does not need to be enabled."))
             }
 
             Section {
