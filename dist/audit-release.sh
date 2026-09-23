@@ -113,6 +113,8 @@ echo "→ auditing versions, architecture, and runtime links"
 [ "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - \
     "$APP/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Contents/Info.plist")" \
     = "org.tevriq.siriremoteforge.CredentialBroker" ]
+[ "$(/usr/bin/plutil -extract HyperVibeCredentialBackend raw -o - "$APP/Contents/Info.plist")" \
+    = "local-json" ]
 for bundle in "$APP" "$SETUP" "$UNINSTALL" "$PAYLOAD/SiriRemoteMic.driver"; do
     [ "$(/usr/bin/plutil -extract CFBundleVersion raw -o - "$bundle/Contents/Info.plist")" \
         = "$BUILD_NUMBER" ] || {
