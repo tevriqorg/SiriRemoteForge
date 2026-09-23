@@ -1346,8 +1346,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow = settingsWin
         menuBarManager.onOpenSettings = { [weak settingsWin] in settingsWin?.show() }
         menuBarManager.onOpenSetup = { [weak self] in self?.showSetupWizard() }
-        menuBarManager.onCheckForUpdates = { [weak self] in
-            Task { @MainActor in self?.checkForUpdatesManually() }
+        if model.softwareUpdatesAvailable {
+            menuBarManager.onCheckForUpdates = { [weak self] in
+                Task { @MainActor in self?.checkForUpdatesManually() }
+            }
+        } else {
+            menuBarManager.onCheckForUpdates = nil
         }
 
         // Demo Mode is also launch-lazy. Its controller registers screen/Space observers in init,
