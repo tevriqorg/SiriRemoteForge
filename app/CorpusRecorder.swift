@@ -185,6 +185,7 @@ final class VoiceCorpusRecorder {
         var clipboardCaptured = false
         var accessibilityCaptured = false
         var frontmostAppChangedDuringObservation = false
+        var focusTargetChangedDuringObservation = false
         var secureInputSeenDuringObservation = false
 
         init(id: UUID, startedAt: Date, directoryURL: URL,
@@ -254,6 +255,7 @@ final class VoiceCorpusRecorder {
         let clipboardObserved: Bool
         let accessibilityObserved: Bool
         let frontmostAppChanged: Bool
+        let focusTargetChanged: Bool
         let secureInputSeen: Bool
         let observationWindowLimitSeconds: Double
         let speechStatus: String
@@ -267,6 +269,7 @@ final class VoiceCorpusRecorder {
             case clipboardObserved = "clipboard_observed"
             case accessibilityObserved = "accessibility_observed"
             case frontmostAppChanged = "frontmost_app_changed"
+            case focusTargetChanged = "focus_target_changed"
             case secureInputSeen = "secure_input_seen"
             case observationWindowLimitSeconds = "observation_window_limit_seconds"
             case speechStatus = "speech_status"
@@ -609,7 +612,7 @@ final class VoiceCorpusRecorder {
                 return now.isCompatibleReplacement(for: original)
             }()
             guard sameElement || compatibleReplacement else {
-                session.frontmostAppChangedDuringObservation = true
+                session.focusTargetChangedDuringObservation = true
                 finalizeObservation(
                     session,
                     textStatus: session.accessibilityCaptured
@@ -698,6 +701,7 @@ final class VoiceCorpusRecorder {
             clipboardObserved: session.clipboardCaptured,
             accessibilityObserved: session.accessibilityCaptured,
             frontmostAppChanged: session.frontmostAppChangedDuringObservation,
+            focusTargetChanged: session.focusTargetChangedDuringObservation,
             secureInputSeen: session.secureInputSeenDuringObservation,
             observationWindowLimitSeconds: Double(textObservationAttempts) * textObservationInterval,
             speechStatus: "not_analyzed",
