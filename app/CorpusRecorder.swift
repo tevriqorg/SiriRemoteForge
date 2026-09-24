@@ -350,6 +350,7 @@ final class VoiceCorpusRecorder {
             onMaximumDuration: { rmDebug("🗂 corpus: one-hour emergency safety cap reached") },
             retainPCM: false,
             streamChunks: false,
+            preserveBeginningWhenRemoteCold: true,
             onPCMChunk: { [weak audioSpool] chunk in audioSpool?.append(chunk) }
         )
         capture.start()
