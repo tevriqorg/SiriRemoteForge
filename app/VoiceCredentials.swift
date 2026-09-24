@@ -3,8 +3,8 @@
 //  HyperVibe
 //
 //  Cloud voice credentials never enter config.jsonc, UserDefaults, logs, crash text, or the app
-//  bundle. Certificate-bound builds use the login Keychain; public ad-hoc builds use a dedicated,
-//  current-user-only JSON file under Application Support so native Voice remains available in beta.
+//  bundle. Team-bound developer builds use the fork-owned login-Keychain namespace through the
+//  validated Credential Broker; public ad-hoc builds use a dedicated current-user-only JSON file.
 //
 
 import Combine
