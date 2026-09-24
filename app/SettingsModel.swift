@@ -40,6 +40,24 @@ final class SettingsModel: ObservableObject {
     /// Applying `settings.launchAtLoginEnabled` crosses into SMAppService and can be rejected by
     /// macOS. Keep the requested JSON value intact while surfacing the real OS error in Settings.
     @Published var launchAtLoginError: String?
+    /// Recorder-known disk/write failures are factual App state, not inferred IME/network outcomes.
+    /// Keep the latest error visible for this process rather than risk masking partial data loss.
+    @Published var corpusStorageError: String?
+
+    /// Local development candidates deliberately have no active Sparkle feed. Keeping this as a
+    /// computed build capability prevents Settings from presenting controls that can only no-op.
+    var softwareUpdatesAvailable: Bool {
+        guard let release = Bundle.main.object(
+            forInfoDictionaryKey: "HyperVibeReleaseVersion"
+        ) as? String,
+        !release.contains("-local."),
+        let feedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String,
+        !feedURL.isEmpty,
+        let publicKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
+        !publicKey.isEmpty
+        else { return false }
+        return true
+    }
 
     /// Set only while a scheduled update waits gently in the background for user attention.
     @Published var availableUpdateVersion: String?

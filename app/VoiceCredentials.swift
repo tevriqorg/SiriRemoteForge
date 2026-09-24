@@ -3,8 +3,8 @@
 //  HyperVibe
 //
 //  Cloud voice credentials never enter config.jsonc, UserDefaults, logs, crash text, or the app
-//  bundle. Certificate-bound builds use the login Keychain; public ad-hoc builds use a dedicated,
-//  current-user-only JSON file under Application Support so native Voice remains available in beta.
+//  bundle. Team-bound developer builds use the fork-owned login-Keychain namespace through the
+//  validated Credential Broker; public ad-hoc builds use a dedicated current-user-only JSON file.
 //
 
 import Combine
@@ -34,6 +34,7 @@ enum VoiceCredentialStore {
     enum Backend: Equatable {
         case keychain
         case localJSON
+        case unavailable
     }
 
     /// UI-safe snapshot. Code-signature validation can consult Security.framework and must not be
@@ -41,6 +42,35 @@ enum VoiceCredentialStore {
     static var cachedBackend: Backend? {
         cacheLock.lock(); defer { cacheLock.unlock() }
         return resolvedStorageBackend
+    }
+
+    private static func packagedBackendExpectation() -> Backend? {
+        if let raw = Bundle.main.object(
+            forInfoDictionaryKey: "HyperVibeCredentialBackend"
+        ) as? String {
+            switch raw {
+            case "keychain": return .keychain
+            case "local-json": return .localJSON
+            default: return .unavailable
+            }
+        }
+        // A packaged App missing the marker is a packaging/security regression. Bare developer
+        // binaries and headless tests retain auto-detection for compatibility.
+        return Bundle.main.bundleURL.pathExtension == "app" ? .unavailable : nil
+    }
+
+    static func backendPolicy(expected: Backend?, brokerAvailable: Bool) -> Backend {
+        guard let expected else {
+            return brokerAvailable ? .keychain : .localJSON
+        }
+        switch expected {
+        case .keychain:
+            return brokerAvailable ? .keychain : .unavailable
+        case .localJSON:
+            return .localJSON
+        case .unavailable:
+            return .unavailable
+        }
     }
 
     private static func resolveBackend() -> Backend {
@@ -51,8 +81,16 @@ enum VoiceCredentialStore {
         }
         cacheLock.unlock()
 
-        let value: Backend = VoiceCredentialBrokerClient.shared.isAvailable
-            ? .keychain : .localJSON
+        let expected = packagedBackendExpectation()
+        let brokerAvailable: Bool
+        switch expected {
+        case .localJSON, .unavailable:
+            brokerAvailable = false
+        case .keychain, nil:
+            brokerAvailable = VoiceCredentialBrokerClient.shared.isAvailable
+        }
+        let value = backendPolicy(expected: expected, brokerAvailable: brokerAvailable)
+
         cacheLock.lock()
         if resolvedStorageBackend == nil { resolvedStorageBackend = value }
         let resolved = resolvedStorageBackend ?? value
@@ -97,8 +135,22 @@ enum VoiceCredentialStore {
         let generation = mutationGeneration
         cacheLock.unlock()
 
-        let brokerResults = VoiceCredentialBrokerClient.shared.readAll()
-        let localResults = try? LocalJSONCredentialStore.shared.readAll()
+        let backend = resolveBackend()
+        if backend == .unavailable {
+            cacheLock.lock()
+            confirmedMissing.formUnion(VoiceCredentialKind.allCases)
+            loadedAll = true
+            cacheLock.unlock()
+            return nil
+        }
+        let brokerResults = backend == .keychain
+            ? VoiceCredentialBrokerClient.shared.readAll() : nil
+        // A valid certificate-bound build may still read the old public-beta JSON as a migration
+        // source when the Keychain item is absent. The critical boundary is broker validation:
+        // if the packaged build expected Keychain and that broker is invalid, we returned above
+        // and never consult plaintext storage.
+        let localResults = (backend == .keychain || backend == .localJSON)
+            ? (try? LocalJSONCredentialStore.shared.readAll()) : nil
 
         cacheLock.lock()
         guard mutationGeneration == generation else {
@@ -148,6 +200,8 @@ enum VoiceCredentialStore {
             } catch {
                 throw VoiceCredentialError.localStorage
             }
+        case .unavailable:
+            throw VoiceCredentialError.brokerUnavailable
         }
         cacheLock.lock()
         cached[kind] = clean
@@ -157,11 +211,16 @@ enum VoiceCredentialStore {
     }
 
     static func remove(_ kind: VoiceCredentialKind) throws {
-        if resolveBackend() == .keychain {
+        switch resolveBackend() {
+        case .keychain:
             let status = VoiceCredentialBrokerClient.shared.remove(account: kind.rawValue)
             guard status == errSecSuccess || status == errSecItemNotFound else {
                 throw VoiceCredentialError.keychain(status)
             }
+        case .localJSON:
+            break
+        case .unavailable:
+            throw VoiceCredentialError.brokerUnavailable
         }
         do {
             // Remove a legacy beta-file copy too. Otherwise a credential deleted after moving to
@@ -380,6 +439,11 @@ private final class VoiceCredentialBrokerClient {
         let process = Process()
         process.executableURL = brokerURL
         process.arguments = arguments
+        var environment = ProcessInfo.processInfo.environment
+        if let hostID = Bundle.main.bundleIdentifier {
+            environment["HYPERVIBE_HOST_BUNDLE_ID"] = hostID
+        }
+        process.environment = environment
         process.standardInput = inputPipe
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
@@ -408,7 +472,8 @@ private final class VoiceCredentialBrokerClient {
     }
 
     private static func validBroker(at url: URL) -> Bool {
-        guard let requirementText = peerRequirement(identifier: "com.hypervibe.app.CredentialBroker")
+        guard let hostID = Bundle.main.bundleIdentifier,
+              let requirementText = peerRequirement(identifier: hostID + ".CredentialBroker")
         else { return false }
         var requirement: SecRequirement?
         guard SecRequirementCreateWithString(
@@ -420,29 +485,34 @@ private final class VoiceCredentialBrokerClient {
         return SecStaticCodeCheckValidity(code, [], requirement) == errSecSuccess
     }
 
-    /// Derive the peer requirement from this binary's own designated requirement, preserving its
-    /// signing certificate while swapping only the bundle identifier. Identifier-only validation
-    /// is forgeable, so ad-hoc builds intentionally cannot invoke the credential broker; a public
-    /// build must use a certificate-bound signing workflow before Keychain voice credentials work.
+    /// Trust the packaged broker only when both its bundle identifier and Apple Team match this
+    /// App. Team continuity survives ordinary Apple Development certificate rotation without
+    /// accepting a same-named binary signed by another developer.
     private static func peerRequirement(identifier: String) -> String? {
+        guard identifier.range(
+            of: #"^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$"#,
+            options: .regularExpression
+        ) != nil,
+        let teamID = teamIdentifier(),
+        teamID.range(of: #"^[A-Z0-9]+$"#, options: .regularExpression) != nil
+        else { return nil }
+
+        return "identifier \"\(identifier)\" and anchor apple generic "
+            + "and certificate leaf[subject.OU] = \"\(teamID)\""
+    }
+
+    private static func teamIdentifier() -> String? {
         var ownCode: SecCode?
         guard SecCodeCopySelf([], &ownCode) == errSecSuccess, let ownCode else { return nil }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(ownCode, [], &staticCode) == errSecSuccess,
-              let staticCode else { return nil }
-        var ownRequirement: SecRequirement?
-        guard SecCodeCopyDesignatedRequirement(staticCode, [], &ownRequirement) == errSecSuccess,
-              let ownRequirement else { return nil }
-        var textValue: CFString?
-        guard SecRequirementCopyString(ownRequirement, [], &textValue) == errSecSuccess,
-              let text = textValue as String? else { return nil }
-        guard let range = text.range(of: #"identifier \"[^\"]+\""#,
-                                     options: .regularExpression) else { return nil }
-        let replaced = text.replacingCharacters(
-            in: range, with: "identifier \"\(identifier)\""
-        )
-        if replaced.contains("certificate leaf") { return replaced }
-        return nil
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            ownCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information
+        ) == errSecSuccess,
+        let dictionary = information as? [String: Any],
+        let teamID = dictionary[kSecCodeInfoTeamIdentifier as String] as? String,
+        !teamID.isEmpty
+        else { return nil }
+        return teamID
     }
 }
 
@@ -450,6 +520,7 @@ enum VoiceCredentialError: LocalizedError {
     case empty
     case keychain(OSStatus)
     case localStorage
+    case brokerUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -460,6 +531,8 @@ enum VoiceCredentialError: LocalizedError {
             return L("Keychain couldn't save the credential: %@", detail)
         case .localStorage:
             return L("The local API credential file is unavailable.")
+        case .brokerUnavailable:
+            return L("Credential Broker validation failed. This signed build will not fall back to plaintext credential storage.")
         }
     }
 }

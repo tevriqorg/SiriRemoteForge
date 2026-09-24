@@ -187,7 +187,23 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 5)
             } footer: {
-                Text(L("Capture and the cloud connection are pre-warmed on the raw press edge. A quick tap cancels silently; Voice appears only after the existing 0.2-second hold threshold."))
+                Text(L("Capture and the cloud connection are pre-warmed on the raw press edge. A quick tap cancels silently; Voice appears only after the existing 0.2-second hold threshold. Turning Native Voice on from a launch where it was off requires a relaunch; turning it off takes effect immediately, and relaunching releases its coordinator, credential preload, and warm network sessions."))
+            }
+
+            Section {
+                Toggle(isOn: $model.tune.corpusCaptureEnabled) {
+                    rowLabel(L("Record external voice corpus"), "waveform.badge.plus")
+                }
+                if let error = model.corpusStorageError {
+                    Label(error, systemImage: "externaldrive.badge.exclamationmark")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                }
+            } header: {
+                Text(L("Voice Corpus"))
+            } footer: {
+                Text(L("When enabled, each Side-button external voice attempt is saved from physical press to release as raw audio plus capture metadata, including very short presses and no-text attempts. Clipboard is preserved only as unattributed Raw evidence; only a re-verified Accessibility target can mark text as observed. Missing text is not treated as failure. Native Voice does not need to be enabled."))
             }
 
             Section {
@@ -315,6 +331,9 @@ struct SettingsView: View {
                     Text(L("Keys are stored in the macOS Keychain with this-device-only protection. On first save, choose Always Allow once for HyperVibe's fixed credential helper; normal App updates will not ask again. Keys are never written to config.jsonc, logs, the app bundle, or Git."))
                 } else if voiceCredentials.storageBackend == .localJSON {
                     Text(L("Keys are saved as plaintext in a current-user-only credentials.json file for this public beta. Only HyperVibe Settings provides a supported way to write it. Keys are never written to config.jsonc, logs, the app bundle, or Git."))
+                } else if voiceCredentials.storageBackend == .unavailable {
+                    Text(L("Credential Broker validation failed. This signed build is refusing to fall back to plaintext credential storage. Rebuild or re-sign the App and Broker together."))
+                        .foregroundStyle(.red)
                 } else {
                     Text(L("Checking local credential storage…"))
                 }
@@ -1309,7 +1328,7 @@ struct SettingsView: View {
         } header: {
             Text(L("On-screen Status"))
         } footer: {
-            Text(L("Every persistent or transient status surface can be enabled independently here or in config.jsonc."))
+            Text(L("Every persistent or transient status surface can be enabled independently here or in config.jsonc. Status Widget, Demo Remote and Long-press HUD are not constructed when disabled at launch; relaunch after enabling launch-bound surfaces, or after disabling them when you want their memory released."))
         }
     }
 
@@ -1318,10 +1337,12 @@ struct SettingsView: View {
             Toggle(isOn: $model.tune.automaticUpdateChecksEnabled) {
                 rowLabel(L("Automatically check for updates"), "arrow.triangle.2.circlepath")
             }
+            .disabled(!model.softwareUpdatesAvailable)
             Toggle(isOn: $model.tune.automaticallyDownloadUpdatesEnabled) {
                 rowLabel(L("Automatically download updates"), "arrow.down.circle")
             }
-            .disabled(!model.tune.automaticUpdateChecksEnabled)
+            .disabled(!model.softwareUpdatesAvailable
+                      || !model.tune.automaticUpdateChecksEnabled)
             Button {
                 model.onCheckForUpdates?()
             } label: {
@@ -1339,11 +1360,14 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(!model.softwareUpdatesAvailable)
             .tint(model.availableUpdateVersion == nil ? .accentColor : .green)
         } header: {
             Text(L("Software Updates"))
         } footer: {
-            Text(L("Verified Full Setup updates download in the background. macOS asks for administrator approval only when an update installs system components."))
+            Text(model.softwareUpdatesAvailable
+                 ? L("Verified app updates can download in the background. When automatic checks are disabled at launch, the Sparkle updater is not created. Full Setup system-component updates remain a separate manual install.")
+                 : L("Software updates are disabled in local development builds. A fork-owned feed and public key are required before release builds can enable Sparkle."))
                 .font(.system(size: 11))
         }
     }

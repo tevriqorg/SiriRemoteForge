@@ -54,6 +54,10 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
     private let onMinimumDurationReached: () -> Void
     private let onMaximumDuration: () -> Void
     private let onFirstAudioChunk: () -> Void
+    private let retainPCM: Bool
+    private let streamChunks: Bool
+    private let onPCMChunk: (Data) -> Void
+    private let preserveBeginningWhenRemoteCold: Bool
 
     private var timer: DispatchSourceTimer?
     private var startedAtNanoseconds: UInt64 = 0
@@ -94,22 +98,33 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
          maxDuration: TimeInterval,
          onMinimumDurationReached: @escaping () -> Void,
          onMaximumDuration: @escaping () -> Void,
-         onFirstAudioChunk: @escaping () -> Void = {}) {
+         onFirstAudioChunk: @escaping () -> Void = {},
+         retainPCM: Bool = true,
+         streamChunks: Bool = true,
+         preserveBeginningWhenRemoteCold: Bool = false,
+         onPCMChunk: @escaping (Data) -> Void = { _ in }) {
         self.minimumDuration = max(0, minimumDuration)
         self.maxDuration = max(1, maxDuration)
         self.onMinimumDurationReached = onMinimumDurationReached
         self.onMaximumDuration = onMaximumDuration
         self.onFirstAudioChunk = onFirstAudioChunk
+        self.retainPCM = retainPCM
+        self.streamChunks = streamChunks
+        self.preserveBeginningWhenRemoteCold = preserveBeginningWhenRemoteCold
+        self.onPCMChunk = onPCMChunk
         var localContinuation: AsyncStream<Data>.Continuation!
-        // At the 120 s hard limit this is still only ~5.8 MB of PCM. Unbounded buffering avoids
-        // dropping the beginning of an utterance if TLS/WebSocket setup is unusually slow.
-        chunks = AsyncStream<Data>(bufferingPolicy: .unbounded) {
+        // Native Voice consumes the stream and retains final PCM. Corpus explicitly disables both
+        // paths and uses onPCMChunk to journal audio to disk, so a long thinking hold cannot grow
+        // memory linearly with its duration.
+        let bufferingPolicy: AsyncStream<Data>.Continuation.BufferingPolicy =
+            streamChunks ? .unbounded : .bufferingNewest(1)
+        chunks = AsyncStream<Data>(bufferingPolicy: bufferingPolicy) {
             localContinuation = $0
         }
         continuation = localContinuation
         builtinProbe.reserveCapacity(6_000)
         remoteProbe.reserveCapacity(15_000)
-        capturedPCM.reserveCapacity(65_536)
+        if retainPCM { capturedPCM.reserveCapacity(65_536) }
     }
 
     func start() {
@@ -129,6 +144,13 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
                 continuation.resume(returning: self.stopOnQueue())
             }
         }
+    }
+
+    /// Termination-only drain. Normal callers must use async `stop()`; AppDelegate invokes this
+    /// from the main thread while the process is shutting down so queued PCM is not abandoned before
+    /// the asynchronous corpus writer gets a chance to run.
+    func stopBlockingForTermination() -> VoiceCapturedAudio {
+        queue.sync { stopOnQueue() }
     }
 
     func excludeAcousticFeedback(for duration: TimeInterval) {
@@ -198,7 +220,15 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
             }
 
             if remoteWasLive && remoteAdvancedFrames >= 960 {
-                select(.remote)
+                // Corpus values a complete utterance over microphone provenance. If the remote
+                // producer was cold at the physical press edge, its ring has no trustworthy
+                // pre-roll for the sentence beginning; keep the built-in probe that covered that
+                // edge instead. Native Voice keeps the historic remote-first behavior.
+                if preserveBeginningWhenRemoteCold && !remoteWasActiveAtStart {
+                    select(.builtIn)
+                } else {
+                    select(.remote)
+                }
             } else if now - startedAtNanoseconds >= probeNanoseconds {
                 select(.builtIn)
             }
@@ -277,7 +307,8 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
         // Conversion still advances the decimator across excluded frames, avoiding a stale odd
         // sample at the first real speech packet after the cue.
         guard !excluded else { return }
-        capturedPCM.append(chunk)
+        if retainPCM { capturedPCM.append(chunk) }
+        onPCMChunk(chunk)
         capturedFrames += chunk.count / MemoryLayout<Int16>.size
         if !announcedFirstChunk {
             announcedFirstChunk = true
@@ -292,7 +323,7 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
                 sumSquares += value * value
             }
         }
-        continuation.yield(chunk)
+        if streamChunks { continuation.yield(chunk) }
     }
 
     private func announceMinimumDurationIfNeeded() {

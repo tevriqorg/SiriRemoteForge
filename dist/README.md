@@ -22,13 +22,19 @@ The only local prerequisite is Xcode command-line tools. The builder downloads t
 checksum-pinned libopus 1.6.1 source, compiles it for macOS 13, and links it statically into the
 shipping router. Neither the build Mac nor the destination Mac needs Homebrew.
 
+Before any fork release, configure a **fork-owned** Sparkle feed URL and Ed25519 public key. The
+inherited upstream `appcast.xml` / key are historical material and must not be used to update this
+fork's differently signed/bundled App.
+
 ```sh
+export HYPERVIBE_UPDATE_FEED_URL='https://…/appcast.xml'
+export HYPERVIBE_UPDATE_PUBLIC_KEY='…'
 dist/build-release.sh 0.1.0-beta.1
 ```
 
-The command requires a clean worktree, rebuilds every shipping binary, injects the numeric app
-version and a monotonic internal build number, uses reproducible ad-hoc signing in an isolated
-staging bundle, runs the router and HAL
+The builder refuses to start if either update variable is missing. The command also requires a clean
+worktree, rebuilds every shipping binary, injects the numeric app version and a monotonic internal
+build number, uses reproducible ad-hoc signing in an isolated staging bundle, runs the router and HAL
 offline tests, and writes:
 
 ```text
@@ -45,8 +51,8 @@ Upload only the four audited files above, never the whole `dist/build/` director
 archives and fails on invalid signatures/checksums, wrong versions or architectures, Homebrew
 runtime links, missing license notices, private paths, author config, PacketLogger, or video files.
 The libopus source archive and build output are cached under ignored `dist/build/` paths.
-The builder never rewrites `app/HyperVibe.app`, so a locally running, stable-signed development App
-and its macOS privacy grants are left untouched.
+The builder never rewrites the staged local development candidate or the installed stable App, so
+the current Apple-Development/TCC test state is left untouched.
 
 The final step also updates and signs the repository-root `appcast.xml`. HyperVibe checks that feed
 daily and can download the app-only ZIP in the background. Every archive is authenticated with

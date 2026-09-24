@@ -45,8 +45,17 @@ do {
     // Split the only sequence forbidden inside CDATA without altering rendered Markdown.
     let safeNotes = notes.replacingOccurrences(of: "]]>", with: "]]]]><![CDATA[>")
     let encodedVersion = xmlEscape(version)
-    let packageURL = "https://github.com/HOLODATA-COM/SiriRemoteForge/releases/download/v\(encodedVersion)/\(xmlEscape(packageName))"
-    let releaseURL = "https://github.com/HOLODATA-COM/SiriRemoteForge/releases/tag/v\(encodedVersion)"
+    let releaseRepository = ProcessInfo.processInfo.environment["HYPERVIBE_RELEASE_REPOSITORY"]
+        ?? "tevriqorg/SiriRemoteForge"
+    guard releaseRepository.range(
+        of: #"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"#,
+        options: .regularExpression
+    ) != nil else {
+        throw AppcastError.usage
+    }
+    let escapedRepository = xmlEscape(releaseRepository)
+    let packageURL = "https://github.com/\(escapedRepository)/releases/download/v\(encodedVersion)/\(xmlEscape(packageName))"
+    let releaseURL = "https://github.com/\(escapedRepository)/releases/tag/v\(encodedVersion)"
     let channelElement = channel == "stable"
         ? ""
         : "\n            <sparkle:channel>\(xmlEscape(channel))</sparkle:channel>"

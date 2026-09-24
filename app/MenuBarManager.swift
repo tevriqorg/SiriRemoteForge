@@ -43,8 +43,11 @@ final class MenuBarManager {
     var onOpenSettings: (() -> Void)?
     /// Set by the AppDelegate to re-open the first-run setup guide.
     var onOpenSetup: (() -> Void)?
-    /// Set by the AppDelegate to present Sparkle's standard update UI.
-    var onCheckForUpdates: (() -> Void)?
+    /// Set by the AppDelegate only when this packaged build has an active fork-owned Sparkle
+    /// identity. A nil callback removes update UI entirely (local/raw builds).
+    var onCheckForUpdates: (() -> Void)? {
+        didSet { rebuildMenu() }
+    }
     /// Set by the AppDelegate to show/hide the live, presentation-oriented remote visualiser.
     var onToggleDemoMode: (() -> Void)?
 
@@ -136,7 +139,7 @@ final class MenuBarManager {
         statusMenuItem.isEnabled = false
         menu.addItem(statusMenuItem)
 
-        if let version = availableUpdateVersion {
+        if onCheckForUpdates != nil, let version = availableUpdateVersion {
             let updateItem = NSMenuItem(
                 title: L("Update %@ Available…", version),
                 action: #selector(checkForUpdates), keyEquivalent: ""
@@ -174,11 +177,13 @@ final class MenuBarManager {
         demoItem.target = self
         menu.addItem(demoItem)
 
-        let updatesItem = NSMenuItem(
-            title: L("Check for Updates…"), action: #selector(checkForUpdates), keyEquivalent: ""
-        )
-        updatesItem.target = self
-        menu.addItem(updatesItem)
+        if onCheckForUpdates != nil {
+            let updatesItem = NSMenuItem(
+                title: L("Check for Updates…"), action: #selector(checkForUpdates), keyEquivalent: ""
+            )
+            updatesItem.target = self
+            menu.addItem(updatesItem)
+        }
 
         menu.addItem(.separator())
         let quitItem = NSMenuItem(title: L("Quit"), action: #selector(quitApp), keyEquivalent: "q")

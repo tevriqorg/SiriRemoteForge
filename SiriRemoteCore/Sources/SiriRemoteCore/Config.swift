@@ -92,6 +92,9 @@ public struct Config: Equatable {
         /// window owns its whole Space, so focusing it raises nothing and disturbs no window
         /// stack. Off by default: it changes which app receives input.
         public var focusFollowsCursor: Bool
+        /// Long-term corpus capture for the external side-button workflow. Off by default because
+        /// enabling it persistently stores microphone audio and best-effort IME text on disk.
+        public var corpusCaptureEnabled: Bool
         /// App-owned push-to-talk transcription. API credentials are deliberately NOT represented
         /// here: this JSON is user-readable and commonly shared, while secrets live in Keychain.
         public var dictation: DictationSettings
@@ -627,6 +630,7 @@ extension Config.Settings: Decodable {
         case layerHUDEnabled, holdHUDEnabled, dragIndicatorEnabled
         case showSetupWizardOnFirstLaunch
         case focusFollowsCursor
+        case corpusCaptureEnabled
         case dictation
     }
     public init(from decoder: Decoder) throws {
@@ -681,6 +685,7 @@ extension Config.Settings: Decodable {
             Bool.self, forKey: .showSetupWizardOnFirstLaunch
         ) ?? true
         focusFollowsCursor = try c.decodeIfPresent(Bool.self, forKey: .focusFollowsCursor) ?? false
+        corpusCaptureEnabled = try c.decodeIfPresent(Bool.self, forKey: .corpusCaptureEnabled) ?? false
         dictation = try c.decodeIfPresent(Config.DictationSettings.self, forKey: .dictation)
             ?? Config.DictationSettings()
     }
@@ -802,6 +807,7 @@ extension Config.Settings: Encodable {
         try c.encode(dragIndicatorEnabled, forKey: .dragIndicatorEnabled)
         try c.encode(showSetupWizardOnFirstLaunch, forKey: .showSetupWizardOnFirstLaunch)
         try c.encode(focusFollowsCursor, forKey: .focusFollowsCursor)
+        try c.encode(corpusCaptureEnabled, forKey: .corpusCaptureEnabled)
         try c.encode(dictation, forKey: .dictation)
     }
 }

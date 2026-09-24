@@ -20,7 +20,8 @@ protocol VoiceCredentialBrokerProtocol {
 }
 
 private final class CredentialBrokerService: NSObject, VoiceCredentialBrokerProtocol {
-    private let service = "com.hypervibe.credentials.v6"
+    private let service = "org.tevriq.siriremoteforge.credentials.v1"
+    private let legacyService = "com.hypervibe.credentials.v6"
     private let loginKeychain: SecKeychain?
     private let credentialAccess: SecAccess?
     private let accessSetupStatus: OSStatus
@@ -45,7 +46,33 @@ private final class CredentialBrokerService: NSObject, VoiceCredentialBrokerProt
 
     func readCredential(account: String, allowInteraction: Bool,
                         reply: (NSData?, NSNumber) -> Void) {
-        var query = baseQuery(account: account)
+        let primary = readCredential(
+            account: account, service: service, allowInteraction: allowInteraction
+        )
+        if primary.status == errSecSuccess {
+            reply(primary.data as NSData?, NSNumber(value: primary.status))
+            return
+        }
+        guard primary.status == errSecItemNotFound else {
+            reply(nil, NSNumber(value: primary.status))
+            return
+        }
+
+        // One-way, non-destructive migration: a fork build may read the historical item once and
+        // copy it into the fork-owned namespace, but it never deletes or rewrites the legacy item.
+        // That preserves rollback compatibility with the currently installed stable App.
+        let legacy = readCredential(
+            account: account, service: legacyService, allowInteraction: allowInteraction
+        )
+        if legacy.status == errSecSuccess, let data = legacy.data {
+            saveCredential(account: account, value: data as NSData) { _ in }
+        }
+        reply(legacy.data as NSData?, NSNumber(value: legacy.status))
+    }
+
+    private func readCredential(account: String, service: String, allowInteraction: Bool)
+        -> (data: Data?, status: OSStatus) {
+        var query = baseQuery(account: account, service: service)
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         query[kSecReturnData as String] = true
         let context = LAContext()
@@ -53,12 +80,12 @@ private final class CredentialBrokerService: NSObject, VoiceCredentialBrokerProt
         query[kSecUseAuthenticationContext as String] = context
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        reply(item as? NSData, NSNumber(value: status))
+        return (item as? Data, status)
     }
 
     func saveCredential(account: String, value: NSData,
                         reply: @escaping (NSNumber) -> Void) {
-        let query = baseQuery(account: account)
+        let query = baseQuery(account: account, service: service)
         let attributes: [String: Any] = [
             kSecValueData as String: value,
             kSecAttrLabel as String: "HyperVibe Cloud Credential",
@@ -86,10 +113,26 @@ private final class CredentialBrokerService: NSObject, VoiceCredentialBrokerProt
 
     func removeCredential(account: String,
                           reply: @escaping (NSNumber) -> Void) {
-        reply(NSNumber(value: SecItemDelete(baseQuery(account: account) as CFDictionary)))
+        let primary = SecItemDelete(
+            baseQuery(account: account, service: service) as CFDictionary
+        )
+        let legacy = SecItemDelete(
+            baseQuery(account: account, service: legacyService) as CFDictionary
+        )
+        let status: OSStatus
+        if primary != errSecSuccess && primary != errSecItemNotFound {
+            status = primary
+        } else if legacy != errSecSuccess && legacy != errSecItemNotFound {
+            status = legacy
+        } else if primary == errSecSuccess || legacy == errSecSuccess {
+            status = errSecSuccess
+        } else {
+            status = errSecItemNotFound
+        }
+        reply(NSNumber(value: status))
     }
 
-    private func baseQuery(account: String) -> [String: Any] {
+    private func baseQuery(account: String, service: String) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -108,16 +151,18 @@ private final class CredentialBrokerListener: NSObject, NSXPCListenerDelegate {
     private let requiredClient: String?
 
     override init() {
-        requiredClient = CodeSigningPeer.requirement(identifier: "com.hypervibe.app")
+        requiredClient = CodeSigningPeer.hostIdentifier()
+            .flatMap { CodeSigningPeer.requirement(identifier: $0) }
         super.init()
     }
 
     func listener(_ listener: NSXPCListener,
                   shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
-        guard connection.effectiveUserIdentifier == getuid() else { return false }
+        guard connection.effectiveUserIdentifier == getuid(),
+              let requiredClient else { return false }
         connection.exportedInterface = NSXPCInterface(with: VoiceCredentialBrokerProtocol.self)
         connection.exportedObject = service
-        if let requiredClient { connection.setCodeSigningRequirement(requiredClient) }
+        connection.setCodeSigningRequirement(requiredClient)
         connection.resume()
         return true
     }
@@ -125,25 +170,45 @@ private final class CredentialBrokerListener: NSObject, NSXPCListenerDelegate {
 }
 
 private enum CodeSigningPeer {
+    static func hostIdentifier() -> String? {
+        if let raw = ProcessInfo.processInfo.environment["HYPERVIBE_HOST_BUNDLE_ID"] {
+            let explicit = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !explicit.isEmpty { return explicit }
+        }
+        guard let brokerID = Bundle.main.bundleIdentifier else { return nil }
+        let suffix = ".CredentialBroker"
+        guard brokerID.hasSuffix(suffix) else { return nil }
+        return String(brokerID.dropLast(suffix.count))
+    }
+
     static func requirement(identifier: String) -> String? {
+        guard identifier.range(
+            of: #"^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$"#,
+            options: .regularExpression
+        ) != nil,
+        let teamID = teamIdentifier(),
+        teamID.range(of: #"^[A-Z0-9]+$"#, options: .regularExpression) != nil
+        else { return nil }
+
+        // Trust continuity is intentionally Team + bundle identifier, not one leaf certificate.
+        // Apple Development certificates expire/rotate; a different Team with the same bundle id
+        // still fails this requirement.
+        return "identifier \"\(identifier)\" and anchor apple generic "
+            + "and certificate leaf[subject.OU] = \"\(teamID)\""
+    }
+
+    private static func teamIdentifier() -> String? {
         var ownCode: SecCode?
         guard SecCodeCopySelf([], &ownCode) == errSecSuccess, let ownCode else { return nil }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(ownCode, [], &staticCode) == errSecSuccess,
-              let staticCode else { return nil }
-        var ownRequirement: SecRequirement?
-        guard SecCodeCopyDesignatedRequirement(staticCode, [], &ownRequirement) == errSecSuccess,
-              let ownRequirement else { return nil }
-        var textValue: CFString?
-        guard SecRequirementCopyString(ownRequirement, [], &textValue) == errSecSuccess,
-              let text = textValue as String? else { return nil }
-        guard let range = text.range(of: #"identifier \"[^\"]+\""#,
-                                     options: .regularExpression) else { return nil }
-        let replaced = text.replacingCharacters(
-            in: range, with: "identifier \"\(identifier)\""
-        )
-        if replaced.contains("certificate leaf") { return replaced }
-        return "identifier \"\(identifier)\""
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            ownCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information
+        ) == errSecSuccess,
+        let dictionary = information as? [String: Any],
+        let teamID = dictionary[kSecCodeInfoTeamIdentifier as String] as? String,
+        !teamID.isEmpty
+        else { return nil }
+        return teamID
     }
 }
 
@@ -283,7 +348,8 @@ private enum CredentialBrokerMain {
     }
 
     private static func trustedParent() -> Bool {
-        guard let requirementText = CodeSigningPeer.requirement(identifier: "com.hypervibe.app")
+        guard let hostID = CodeSigningPeer.hostIdentifier(),
+              let requirementText = CodeSigningPeer.requirement(identifier: hostID)
         else { return false }
         var requirement: SecRequirement?
         guard SecRequirementCreateWithString(

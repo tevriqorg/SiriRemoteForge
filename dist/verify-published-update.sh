@@ -34,8 +34,9 @@ trap cleanup EXIT
 APPCAST="$VERIFY_ROOT/appcast.xml"
 ARCHIVE_NAME="HyperVibe-$VERSION-macOS-arm64.zip"
 ARCHIVE="$VERIFY_ROOT/$ARCHIVE_NAME"
-FEED_URL="https://raw.githubusercontent.com/HOLODATA-COM/SiriRemoteForge/main/appcast.xml"
-EXPECTED_URL="https://github.com/HOLODATA-COM/SiriRemoteForge/releases/download/v$VERSION/$ARCHIVE_NAME"
+RELEASE_REPOSITORY="${HYPERVIBE_RELEASE_REPOSITORY:-tevriqorg/SiriRemoteForge}"
+FEED_URL="${HYPERVIBE_UPDATE_FEED_URL:-https://raw.githubusercontent.com/$RELEASE_REPOSITORY/main/appcast.xml}"
+EXPECTED_URL="https://github.com/$RELEASE_REPOSITORY/releases/download/v$VERSION/$ARCHIVE_NAME"
 
 /usr/bin/curl --fail --location --silent --show-error \
     -H 'Cache-Control: no-cache' "$FEED_URL?version=$EXPECTED_BUILD" -o "$APPCAST"

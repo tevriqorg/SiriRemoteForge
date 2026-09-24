@@ -5,13 +5,41 @@
 set -e
 
 APP_NAME="HyperVibe"
-APP_BUNDLE="${HYPERVIBE_APP_BUNDLE_PATH:-${APP_NAME}.app}"
+APP_BUNDLE="${HYPERVIBE_APP_BUNDLE_PATH:-.build/HyperVibe-Dev.app}"
 BINARY_PATH="${HYPERVIBE_BINARY_PATH:-$APP_NAME}"
 APP_VERSION="${HYPERVIBE_VERSION:-1.0.0}"
 BUILD_NUMBER="${HYPERVIBE_BUILD_NUMBER:-1}"
 RELEASE_VERSION="${HYPERVIBE_RELEASE_VERSION:-${APP_VERSION}-local.${BUILD_NUMBER}}"
-SIGN_MODE="${HYPERVIBE_SIGN_MODE:-stable}"
+APP_BUNDLE_ID="${HYPERVIBE_BUNDLE_ID:-org.tevriq.siriremoteforge}"
+BROKER_BUNDLE_ID="${APP_BUNDLE_ID}.CredentialBroker"
+UPDATE_FEED_URL="${HYPERVIBE_UPDATE_FEED_URL:-}"
+UPDATE_PUBLIC_KEY="${HYPERVIBE_UPDATE_PUBLIC_KEY:-}"
+SIGN_MODE="${HYPERVIBE_SIGN_MODE:-developer}"
 SPARKLE_ROOT="$(./prepare_sparkle.sh)"
+
+case "$SIGN_MODE" in
+    developer) CREDENTIAL_BACKEND="keychain" ;;
+    adhoc) CREDENTIAL_BACKEND="local-json" ;;
+    *)
+        echo "Error: HYPERVIBE_SIGN_MODE must be 'developer' or 'adhoc', got: $SIGN_MODE"
+        exit 1
+        ;;
+esac
+
+IS_LOCAL_BUILD=false
+case "$RELEASE_VERSION" in
+    *-local.*) IS_LOCAL_BUILD=true ;;
+esac
+
+if { [ -n "$UPDATE_FEED_URL" ] && [ -z "$UPDATE_PUBLIC_KEY" ]; } \
+   || { [ -z "$UPDATE_FEED_URL" ] && [ -n "$UPDATE_PUBLIC_KEY" ]; }; then
+    echo "Error: HYPERVIBE_UPDATE_FEED_URL and HYPERVIBE_UPDATE_PUBLIC_KEY must be supplied together."
+    exit 1
+fi
+if [ "$IS_LOCAL_BUILD" = false ] && { [ -z "$UPDATE_FEED_URL" ] || [ -z "$UPDATE_PUBLIC_KEY" ]; }; then
+    echo "Error: non-local builds require an explicit fork-owned Sparkle feed URL and public key."
+    exit 1
+fi
 
 if ! [[ "$APP_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
     echo "Error: HYPERVIBE_VERSION must be numeric (for example 0.1.0), got: $APP_VERSION"
@@ -23,6 +51,10 @@ if ! [[ "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
 fi
 if ! [[ "$RELEASE_VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z.-]*$ ]]; then
     echo "Error: invalid HYPERVIBE_RELEASE_VERSION: $RELEASE_VERSION"
+    exit 1
+fi
+if ! [[ "$APP_BUNDLE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
+    echo "Error: invalid HYPERVIBE_BUNDLE_ID: $APP_BUNDLE_ID"
     exit 1
 fi
 
@@ -37,7 +69,39 @@ if [ ! -f "HyperVibeCredentialBroker" ]; then
     exit 1
 fi
 
-echo "Creating app bundle: $APP_BUNDLE"
+case "$APP_BUNDLE" in
+    *.app) ;;
+    *)
+        echo "Error: HYPERVIBE_APP_BUNDLE_PATH must name a .app bundle: $APP_BUNDLE"
+        exit 1
+        ;;
+esac
+
+APP_PARENT="$(dirname "$APP_BUNDLE")"
+APP_BASENAME="$(basename "$APP_BUNDLE")"
+mkdir -p -- "$APP_PARENT"
+APP_PARENT_CANONICAL="$(cd "$APP_PARENT" && pwd -P)"
+APP_BUNDLE_CANONICAL="$APP_PARENT_CANONICAL/$APP_BASENAME"
+
+if [ "$SIGN_MODE" = "developer" ]; then
+    case "$APP_BUNDLE_CANONICAL" in
+        /Applications|/Applications/*)
+            echo "Error: developer packaging must stage outside /Applications."
+            echo "Build/sign/verify first; installation is a separate rollback-protected step."
+            exit 1
+            ;;
+    esac
+fi
+case "$APP_BUNDLE_CANONICAL" in
+    /|"$HOME"|"$PWD")
+        echo "Error: refusing destructive bundle path: $APP_BUNDLE_CANONICAL"
+        exit 1
+        ;;
+esac
+
+APP_BUNDLE="$APP_BUNDLE_CANONICAL"
+echo "Creating clean app bundle: $APP_BUNDLE"
+/bin/rm -rf -- "$APP_BUNDLE"
 
 # Create bundle structure
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
@@ -99,7 +163,7 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<EOF
 	<key>CFBundleExecutable</key>
 	<string>$APP_NAME</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.hypervibe.app</string>
+	<string>$APP_BUNDLE_ID</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -112,6 +176,8 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<EOF
 	<string>$APP_VERSION</string>
 	<key>HyperVibeReleaseVersion</key>
 	<string>$RELEASE_VERSION</string>
+	<key>HyperVibeCredentialBackend</key>
+	<string>$CREDENTIAL_BACKEND</string>
 	<key>CFBundleIconFile</key>
 	<string>HyperVibe</string>
 	<key>NSHumanReadableCopyright</key>
@@ -136,10 +202,6 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<EOF
 	<string>HyperVibe uses your selected microphone for push-to-talk dictation, transcription, and its live waveform.</string>
 	<!-- Sparkle update policy. Runtime choices are mirrored from config.jsonc; these values provide
 	     secure first-launch defaults before that config has been migrated by the GUI. -->
-	<key>SUFeedURL</key>
-	<string>https://raw.githubusercontent.com/HOLODATA-COM/SiriRemoteForge/main/appcast.xml</string>
-	<key>SUPublicEDKey</key>
-	<string>soFRqtCkorMRWAPsLRxn3ZE7vaihfpjYFH+4kXmc/Hk=</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUAllowsAutomaticUpdates</key>
@@ -154,10 +216,25 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
+if [ -n "$UPDATE_FEED_URL" ]; then
+    /usr/libexec/PlistBuddy -c "Add :SUFeedURL string $UPDATE_FEED_URL" \
+        "${APP_BUNDLE}/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $UPDATE_PUBLIC_KEY" \
+        "${APP_BUNDLE}/Contents/Info.plist"
+fi
+if [ "$IS_LOCAL_BUILD" = true ]; then
+    /usr/libexec/PlistBuddy -c "Set :SUEnableAutomaticChecks false" \
+        "${APP_BUNDLE}/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :SUAllowsAutomaticUpdates false" \
+        "${APP_BUNDLE}/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :SUAutomaticallyUpdate false" \
+        "${APP_BUNDLE}/Contents/Info.plist"
+fi
+
 # Keep this embedded service byte-for-byte and metadata-stable across UI releases. The login
 # keychain grants its CDHash access once, while the broker mutually authenticates the containing
 # App by code-signing requirement before accepting any XPC message.
-cat > "${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Contents/Info.plist" <<'EOF'
+cat > "${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -167,7 +244,7 @@ cat > "${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Contents
 	<key>CFBundleExecutable</key>
 	<string>HyperVibeCredentialBroker</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.hypervibe.app.CredentialBroker</string>
+	<string>$BROKER_BUNDLE_ID</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -189,6 +266,47 @@ cat > "${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Contents
 </plist>
 EOF
 
+APP_PLIST="${APP_BUNDLE}/Contents/Info.plist"
+BROKER_PLIST="${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Contents/Info.plist"
+/usr/bin/plutil -lint "$APP_PLIST" "$BROKER_PLIST" >/dev/null
+
+[ "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$APP_PLIST")" = "$APP_BUNDLE_ID" ] || {
+    echo "Error: generated App bundle identifier does not match $APP_BUNDLE_ID"
+    exit 1
+}
+[ "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$BROKER_PLIST")" = "$BROKER_BUNDLE_ID" ] || {
+    echo "Error: generated Credential Broker identifier does not match $BROKER_BUNDLE_ID"
+    exit 1
+}
+[ "$(/usr/bin/plutil -extract HyperVibeCredentialBackend raw -o - "$APP_PLIST")" = "$CREDENTIAL_BACKEND" ] || {
+    echo "Error: generated credential backend marker does not match signing mode"
+    exit 1
+}
+
+if [ "$IS_LOCAL_BUILD" = true ]; then
+    for forbidden in SUFeedURL SUPublicEDKey; do
+        if /usr/bin/plutil -extract "$forbidden" raw -o - "$APP_PLIST" >/dev/null 2>&1; then
+            echo "Error: local development bundle unexpectedly contains $forbidden"
+            exit 1
+        fi
+    done
+    for key in SUEnableAutomaticChecks SUAllowsAutomaticUpdates SUAutomaticallyUpdate; do
+        [ "$(/usr/bin/plutil -extract "$key" raw -o - "$APP_PLIST")" = "false" ] || {
+            echo "Error: local development bundle must set $key=false"
+            exit 1
+        }
+    done
+else
+    [ "$(/usr/bin/plutil -extract SUFeedURL raw -o - "$APP_PLIST")" = "$UPDATE_FEED_URL" ] || {
+        echo "Error: generated release feed URL does not match HYPERVIBE_UPDATE_FEED_URL"
+        exit 1
+    }
+    [ "$(/usr/bin/plutil -extract SUPublicEDKey raw -o - "$APP_PLIST")" = "$UPDATE_PUBLIC_KEY" ] || {
+        echo "Error: generated release public key does not match HYPERVIBE_UPDATE_PUBLIC_KEY"
+        exit 1
+    }
+fi
+
 # Keep the license with every binary distribution, including the app-only Release asset.
 if [ -f "../LICENSE" ]; then
     cp "../LICENSE" "${APP_BUNDLE}/Contents/Resources/LICENSE.txt"
@@ -208,35 +326,71 @@ chmod +x "${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Conte
 # but only matter under hardened runtime, so they're harmless here.
 [ -f "HyperVibe.entitlements" ] || { echo "Error: HyperVibe.entitlements not found"; exit 1; }
 
-# Development builds MUST use the stable self-signed identity so TCC grants (Accessibility /
-# Input Monitoring) survive rebuilds. Ad-hoc signing remains available only as an explicit public
-# release-build choice. There is deliberately no automatic fallback between the two modes.
-SIGN_ID="siriRemote Local Signing"
-SIGN_KC="$HOME/Library/Keychains/siriremote-signing.keychain-db"
+# Development builds belong to this fork and must use the developer's own Apple Development
+# identity. Never fall back silently to ad-hoc signing: changing the designated requirement changes
+# TCC/Keychain identity and would make permission failures look like App regressions.
+#
+# Selection order:
+#   1. exact HYPERVIBE_SIGN_ID supplied by the developer;
+#   2. exactly one valid "Apple Development:" identity in the default keychain search list.
+#
+# If several Apple Development identities exist, selection is intentionally explicit.
+SIGN_ID="${HYPERVIBE_SIGN_ID:-}"
+SIGN_LABEL=""
 CODESIGN_KEYCHAIN_ARGS=()
-if [ "$SIGN_MODE" = "stable" ]; then
-    if [ ! -f "$SIGN_KC" ]; then
-        echo "Error: stable signing keychain not found: $SIGN_KC"
-        echo "Refusing to ad-hoc sign a development build because that would reset macOS permissions."
+
+if [ "$SIGN_MODE" = "developer" ]; then
+    DEV_IDENTITY_HASHES=()
+    DEV_IDENTITY_LABELS=()
+    while IFS='|' read -r identity_hash identity_label; do
+        [ -n "$identity_hash" ] || continue
+        DEV_IDENTITY_HASHES+=("$identity_hash")
+        DEV_IDENTITY_LABELS+=("$identity_label")
+    done < <(
+        security find-identity -v -p codesigning 2>/dev/null \
+            | sed -n 's/^[[:space:]]*[0-9][0-9]*) \([0-9A-Fa-f]*\) "\(Apple Development:.*\)"$/\1|\2/p'
+    )
+
+    if [ "${#DEV_IDENTITY_HASHES[@]}" -eq 0 ]; then
+        echo "Error: no valid Apple Development signing identity was found."
         exit 1
     fi
-    if ! security find-certificate -c "$SIGN_ID" "$SIGN_KC" >/dev/null 2>&1; then
-        echo "Error: stable signing certificate '$SIGN_ID' is unavailable."
-        echo "Refusing to ad-hoc sign a development build because that would reset macOS permissions."
-        exit 1
+
+    if [ -z "$SIGN_ID" ]; then
+        if [ "${#DEV_IDENTITY_HASHES[@]}" -ne 1 ]; then
+            echo "Error: multiple Apple Development signing identities are available:"
+            for i in "${!DEV_IDENTITY_HASHES[@]}"; do
+                printf '  %s  %s\n' "${DEV_IDENTITY_HASHES[$i]}" "${DEV_IDENTITY_LABELS[$i]}"
+            done
+            echo "Set HYPERVIBE_SIGN_ID to the exact certificate hash or full identity label."
+            exit 1
+        fi
+        SIGN_ID="${DEV_IDENTITY_HASHES[0]}"
+        SIGN_LABEL="${DEV_IDENTITY_LABELS[0]}"
+    else
+        MATCH_HASHES=()
+        MATCH_LABELS=()
+        for i in "${!DEV_IDENTITY_HASHES[@]}"; do
+            if [ "$SIGN_ID" = "${DEV_IDENTITY_HASHES[$i]}" ] \
+                || [ "$SIGN_ID" = "${DEV_IDENTITY_LABELS[$i]}" ]; then
+                MATCH_HASHES+=("${DEV_IDENTITY_HASHES[$i]}")
+                MATCH_LABELS+=("${DEV_IDENTITY_LABELS[$i]}")
+            fi
+        done
+        if [ "${#MATCH_HASHES[@]}" -ne 1 ]; then
+            echo "Error: HYPERVIBE_SIGN_ID must resolve to exactly one valid Apple Development identity."
+            exit 1
+        fi
+        SIGN_ID="${MATCH_HASHES[0]}"
+        SIGN_LABEL="${MATCH_LABELS[0]}"
     fi
-    # Never put a keychain password in argv: process inspection and build logs must not expose it.
-    # Unlock the dedicated keychain through Keychain Access / Security.framework's native secure
-    # prompt before a non-interactive build. `security find-identity` incorrectly reports zero for
-    # this self-signed identity on current macOS even when its private key is usable, so the named
-    # certificate check above plus the real `codesign` operations below are the authoritative gate.
-    CODESIGN_KEYCHAIN_ARGS=(--keychain "$SIGN_KC")
-    echo "Signing with stable local identity ($SIGN_ID)..."
+
+    echo "Signing development build with: $SIGN_LABEL [$SIGN_ID]"
 elif [ "$SIGN_MODE" = "adhoc" ]; then
     SIGN_ID="-"
-    echo "Ad-hoc signing (explicit public/release build)..."
+    echo "Ad-hoc signing (explicit public/release artifact only)..."
 else
-    echo "Error: HYPERVIBE_SIGN_MODE must be 'stable' or 'adhoc', got: $SIGN_MODE"
+    echo "Error: HYPERVIBE_SIGN_MODE must be 'developer' or 'adhoc', got: $SIGN_MODE"
     exit 1
 fi
 
@@ -270,9 +424,101 @@ codesign -dvv "${APP_BUNDLE}" 2>&1 | grep -E "(Authority|flags|Identifier)" || t
 echo ""
 echo "✓ App bundle created: $APP_BUNDLE"
 echo ""
-echo "You can now:"
-echo "  1. Double-click $APP_BUNDLE to run it"
-echo "  2. Or run: open $APP_BUNDLE"
+echo "Development candidate is staged and signed."
+echo "Do NOT launch it while the installed stable HyperVibe is running."
+echo "Verify first:"
+echo "  codesign --verify --deep --strict --verbose=2 \"$APP_BUNDLE\""
 echo ""
-echo "Note: You'll need to grant Accessibility permissions in:"
-echo "  System Settings → Privacy & Security → Accessibility"
+echo "A real-device test is a separate promotion step: back up the installed stable App,"
+echo "stop it, install this candidate at /Applications/HyperVibe.app, then grant/re-check"
+echo "Accessibility, Input Monitoring and Microphone permissions for the new code identity."
+\t' read -r identity_hash identity_label; do
+        [ -n "$identity_hash" ] || continue
+        DEV_IDENTITY_HASHES+=("$identity_hash")
+        DEV_IDENTITY_LABELS+=("$identity_label")
+    done < <(
+        security find-identity -v -p codesigning 2>/dev/null \
+            | sed -n 's/^[[:space:]]*[0-9][0-9]*) \([0-9A-Fa-f]*\) "\(Apple Development:.*\)"$/\1\	\2/p'
+    )
+
+    if [ "${#DEV_IDENTITY_HASHES[@]}" -eq 0 ]; then
+        echo "Error: no valid Apple Development signing identity was found."
+        exit 1
+    fi
+
+    if [ -z "$SIGN_ID" ]; then
+        if [ "${#DEV_IDENTITY_HASHES[@]}" -ne 1 ]; then
+            echo "Error: multiple Apple Development signing identities are available:"
+            for i in "${!DEV_IDENTITY_HASHES[@]}"; do
+                printf '  %s  %s\n' "${DEV_IDENTITY_HASHES[$i]}" "${DEV_IDENTITY_LABELS[$i]}"
+            done
+            echo "Set HYPERVIBE_SIGN_ID to the exact certificate hash or full identity label."
+            exit 1
+        fi
+        SIGN_ID="${DEV_IDENTITY_HASHES[0]}"
+        SIGN_LABEL="${DEV_IDENTITY_LABELS[0]}"
+    else
+        MATCH_HASHES=()
+        MATCH_LABELS=()
+        for i in "${!DEV_IDENTITY_HASHES[@]}"; do
+            if [ "$SIGN_ID" = "${DEV_IDENTITY_HASHES[$i]}" ] \
+                || [ "$SIGN_ID" = "${DEV_IDENTITY_LABELS[$i]}" ]; then
+                MATCH_HASHES+=("${DEV_IDENTITY_HASHES[$i]}")
+                MATCH_LABELS+=("${DEV_IDENTITY_LABELS[$i]}")
+            fi
+        done
+        if [ "${#MATCH_HASHES[@]}" -ne 1 ]; then
+            echo "Error: HYPERVIBE_SIGN_ID must resolve to exactly one valid Apple Development identity."
+            exit 1
+        fi
+        SIGN_ID="${MATCH_HASHES[0]}"
+        SIGN_LABEL="${MATCH_LABELS[0]}"
+    fi
+
+    echo "Signing development build with: $SIGN_LABEL [$SIGN_ID]"
+elif [ "$SIGN_MODE" = "adhoc" ]; then
+    SIGN_ID="-"
+    echo "Ad-hoc signing (explicit public/release artifact only)..."
+else
+    echo "Error: HYPERVIBE_SIGN_MODE must be 'developer' or 'adhoc', got: $SIGN_MODE"
+    exit 1
+fi
+
+# Sparkle's helpers retain hardened runtime even though HyperVibe itself cannot use it. Sign from
+# the deepest nested code outward; --deep is verification-only and is never used to construct a
+# signature because it can hide a malformed framework bundle.
+SPARKLE_B="${APP_BUNDLE}/Contents/Frameworks/Sparkle.framework/Versions/B"
+CREDENTIAL_XPC="${APP_BUNDLE}/Contents/XPCServices/HyperVibeCredentialBroker.xpc"
+codesign --force --sign "$SIGN_ID" "${CODESIGN_KEYCHAIN_ARGS[@]}" \
+    "$CREDENTIAL_XPC"
+codesign --force --options runtime --sign "$SIGN_ID" "${CODESIGN_KEYCHAIN_ARGS[@]}" \
+    "$SPARKLE_B/XPCServices/Installer.xpc"
+codesign --force --options runtime --preserve-metadata=entitlements \
+    --sign "$SIGN_ID" "${CODESIGN_KEYCHAIN_ARGS[@]}" \
+    "$SPARKLE_B/XPCServices/Downloader.xpc"
+codesign --force --options runtime --sign "$SIGN_ID" "${CODESIGN_KEYCHAIN_ARGS[@]}" \
+    "$SPARKLE_B/Autoupdate"
+codesign --force --options runtime --sign "$SIGN_ID" "${CODESIGN_KEYCHAIN_ARGS[@]}" \
+    "$SPARKLE_B/Updater.app"
+codesign --force --options runtime --sign "$SIGN_ID" "${CODESIGN_KEYCHAIN_ARGS[@]}" \
+    "${APP_BUNDLE}/Contents/Frameworks/Sparkle.framework"
+
+if ! codesign --force --entitlements "HyperVibe.entitlements" \
+    --sign "$SIGN_ID" "${CODESIGN_KEYCHAIN_ARGS[@]}" "${APP_BUNDLE}"; then
+    echo "Error: app signing failed. The existing installed App was not touched."
+    exit 1
+fi
+codesign --verify --deep --strict --verbose=2 "${APP_BUNDLE}"
+codesign -dvv "${APP_BUNDLE}" 2>&1 | grep -E "(Authority|flags|Identifier)" || true
+
+echo ""
+echo "✓ App bundle created: $APP_BUNDLE"
+echo ""
+echo "Development candidate is staged and signed."
+echo "Do NOT launch it while the installed stable HyperVibe is running."
+echo "Verify first:"
+echo "  codesign --verify --deep --strict --verbose=2 \"$APP_BUNDLE\""
+echo ""
+echo "A real-device test is a separate promotion step: back up the installed stable App,"
+echo "stop it, install this candidate at /Applications/HyperVibe.app, then grant/re-check"
+echo "Accessibility, Input Monitoring and Microphone permissions for the new code identity."

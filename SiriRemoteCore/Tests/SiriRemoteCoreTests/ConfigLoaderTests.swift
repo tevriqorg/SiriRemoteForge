@@ -124,6 +124,7 @@ final class ConfigLoaderTests: XCTestCase {
         XCTAssertTrue(defaults.settings.holdHUDEnabled)
         XCTAssertTrue(defaults.settings.dragIndicatorEnabled)
         XCTAssertTrue(defaults.settings.showSetupWizardOnFirstLaunch)
+        XCTAssertFalse(defaults.settings.corpusCaptureEnabled)
 
         let overridden = try ConfigLoader.load("""
         { "settings": { "defaultMode": "g", "cursorSpeed": 0.35, "cursorDeadzone": 0.01,
@@ -134,7 +135,8 @@ final class ConfigLoaderTests: XCTestCase {
                          "demoRemoteEnabled": true,
                          "layerHUDEnabled": false, "holdHUDEnabled": false,
                          "dragIndicatorEnabled": false,
-                         "showSetupWizardOnFirstLaunch": false },
+                         "showSetupWizardOnFirstLaunch": false,
+                         "corpusCaptureEnabled": true },
           "modes": { "g": {} } }
         """)
         XCTAssertEqual(overridden.settings.cursorSpeed, 0.35)
@@ -150,6 +152,7 @@ final class ConfigLoaderTests: XCTestCase {
         XCTAssertFalse(overridden.settings.holdHUDEnabled)
         XCTAssertFalse(overridden.settings.dragIndicatorEnabled)
         XCTAssertFalse(overridden.settings.showSetupWizardOnFirstLaunch)
+        XCTAssertTrue(overridden.settings.corpusCaptureEnabled)
     }
 
     func testInterfaceLanguageRejectsUnknownValue() {
