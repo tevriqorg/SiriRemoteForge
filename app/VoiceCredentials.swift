@@ -485,29 +485,33 @@ private final class VoiceCredentialBrokerClient {
         return SecStaticCodeCheckValidity(code, [], requirement) == errSecSuccess
     }
 
-    /// Derive the peer requirement from this binary's own designated requirement, preserving its
-    /// signing certificate while swapping only the bundle identifier. Identifier-only validation
-    /// is forgeable, so ad-hoc builds intentionally cannot invoke the credential broker; a public
-    /// build must use a certificate-bound signing workflow before Keychain voice credentials work.
+    /// Trust the packaged broker only when both its bundle identifier and Apple Team match this
+    /// App. Team continuity survives ordinary Apple Development certificate rotation without
+    /// accepting a same-named binary signed by another developer.
     private static func peerRequirement(identifier: String) -> String? {
+        guard identifier.range(
+            of: #"^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$"#,
+            options: .regularExpression
+        ) != nil,
+        let teamID = teamIdentifier(),
+        teamID.range(of: #"^[A-Z0-9]+$"#, options: .regularExpression) != nil
+        else { return nil }
+
+        return #"identifier "#(identifier)" and anchor apple generic and certificate leaf[subject.OU] = "#(teamID)""#
+    }
+
+    private static func teamIdentifier() -> String? {
         var ownCode: SecCode?
         guard SecCodeCopySelf([], &ownCode) == errSecSuccess, let ownCode else { return nil }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(ownCode, [], &staticCode) == errSecSuccess,
-              let staticCode else { return nil }
-        var ownRequirement: SecRequirement?
-        guard SecCodeCopyDesignatedRequirement(staticCode, [], &ownRequirement) == errSecSuccess,
-              let ownRequirement else { return nil }
-        var textValue: CFString?
-        guard SecRequirementCopyString(ownRequirement, [], &textValue) == errSecSuccess,
-              let text = textValue as String? else { return nil }
-        guard let range = text.range(of: #"identifier \"[^\"]+\""#,
-                                     options: .regularExpression) else { return nil }
-        let replaced = text.replacingCharacters(
-            in: range, with: "identifier \"\(identifier)\""
-        )
-        if replaced.contains("certificate leaf") { return replaced }
-        return nil
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            ownCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information
+        ) == errSecSuccess,
+        let dictionary = information as? [String: Any],
+        let teamID = dictionary[kSecCodeInfoTeamIdentifier as String] as? String,
+        !teamID.isEmpty
+        else { return nil }
+        return teamID
     }
 }
 
