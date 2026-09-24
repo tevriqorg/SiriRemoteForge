@@ -497,7 +497,8 @@ private final class VoiceCredentialBrokerClient {
         teamID.range(of: #"^[A-Z0-9]+$"#, options: .regularExpression) != nil
         else { return nil }
 
-        return #"identifier "#(identifier)" and anchor apple generic and certificate leaf[subject.OU] = "#(teamID)""#
+        return "identifier \"\(identifier)\" and anchor apple generic "
+            + "and certificate leaf[subject.OU] = \"\(teamID)\""
     }
 
     private static func teamIdentifier() -> String? {
