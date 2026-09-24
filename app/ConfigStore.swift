@@ -93,7 +93,9 @@ enum ConfigStore {
       // Actions: keystroke(keys) pushToTalk(keys) holdKeystroke(keys) media(key) mouse(op) launch(app|url)
       //          shell(command) applescript(script) mode(to) layer(to) layerCycle
       //   holdKeystroke mirrors the physical press exactly: key-down immediately, key-up on release;
-      //     use it for true hold-to-talk shortcuts. Existing pushToTalk remains toggle-compatible.
+      //     use it for true hold-to-talk shortcuts. A base holdKeystroke owns that physical press,
+      //     so its .double/.triple/.hold variants and Native Voice are intentionally not reachable.
+      //     Existing pushToTalk remains the separate delayed/tap-compatible route.
       //          brightnessStep(to: up|down)
       //   layer(to): the bound key becomes a layer key — TAP it to toggle that mode sticky
       //     (persists until tapped again), or HOLD it and press other keys for momentary use.
