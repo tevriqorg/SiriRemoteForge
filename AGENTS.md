@@ -16,10 +16,15 @@ These rules apply to the tevriqorg development fork. Historical upstream rules l
    If none or more than one is available, stop and require an explicit choice.
 3. Never silently fall back to ad-hoc signing for a development build. `adhoc` exists only for an
    explicitly requested public/release artifact.
-4. The outer App deliberately remains without hardened runtime because the current
+4. App ↔ Credential Broker trust is bundle identifier + Apple Team ID. Do not pin normal
+   development trust to one leaf certificate, and do not weaken it to identifier-only validation.
+5. Fork Keychain credentials use `org.tevriq.siriremoteforge.credentials.v1`. Legacy
+   `com.hypervibe.credentials.v6` may be read only as a non-destructive migration source; migration
+   must not delete it because the currently installed stable App may need it for rollback.
+6. The outer App deliberately remains without hardened runtime because the current
    MultitouchSupport callback path is incompatible with it. Nested Sparkle helpers retain their
    hardened-runtime signing.
-5. A change of signing certificate or bundle id is a macOS code-identity migration. Expect the
+7. A change of signing certificate or bundle id is a macOS code-identity migration. Expect the
    first live install to require fresh Accessibility / Input Monitoring / Microphone authorization
    and re-check Launch at Login. Do not diagnose those first-run prompts as feature regressions.
 
