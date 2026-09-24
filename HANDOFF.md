@@ -37,8 +37,9 @@ identity exists. Zero or multiple identities is a hard stop until the local mach
 `HYPERVIBE_SIGN_ID`.
 
 The main App and Credential Broker now derive their peer bundle identifiers dynamically rather than
-hard-coding `com.hypervibe.app`, while still requiring a matching certificate-bound designated
-requirement.
+hard-coding `com.hypervibe.app`. Mutual trust is **Bundle ID + Apple Team ID**, not one exact leaf
+certificate: ordinary Apple Development certificate rotation remains valid, while a different Team
+using the same bundle id is rejected.
 
 The outer App intentionally remains without hardened runtime because the private MultitouchSupport
 callback path is incompatible with it. Nested Sparkle helpers retain hardened runtime.
@@ -118,8 +119,10 @@ physical Side release
 ```
 
 The old 0.2 s promotion delay was removed from `holdKeystroke`. A true held shortcut mirrors the
-physical button directly. `pushToTalk` and Native Voice retain their separate promotion/tap
-semantics.
+physical button directly. For the current `button.siri = holdKeystroke(f10)` product route, the Side
+button is deliberately **dedicated to F10 PTT**: that base binding owns the whole press/release
+lifecycle, so Native Voice and `.double` / `.triple` / `.hold` variants on the same physical Side
+press are intentionally not reachable. `pushToTalk` remains a separate delayed/tap-compatible route.
 
 Every teardown path must release a live held key: swallowed release, modal ownership, remote
 disconnect and normal App termination must not leave F10 latched down.
@@ -154,6 +157,11 @@ Raw policy:
 - a focus change or Secure Input appearing during the post-release observation window ends text
   attribution immediately (`interrupted_by_focus_change` / `interrupted_by_secure_input`);
 - missing labels are preferred to wrong audio/text pairing;
+- turning Corpus OFF during an already-active attempt does **not** truncate it: that physical
+  press/release sample finishes normally, while the next attempt is not recorded;
+- if the Siri Remote audio producer was cold at physical press, Corpus keeps the built-in-mic probe
+  that covered the beginning instead of switching late to remote and risking clipped first words.
+  `audio_source=builtIn` records that fact; Native Voice keeps its own historic remote-first policy;
 - normal App termination synchronously drains pending Corpus writes where possible;
 - Corpus audio is streamed directly to its WAV spool instead of retaining the whole utterance PCM or
   an unconsumed AsyncStream. `capture.json` records generated vs stored frame counts and
@@ -166,17 +174,18 @@ Nightly ASR/VAD/alignment belongs to a later **Analysis** layer and must not ove
 
 These are known but intentionally outside the current first compile/smoke pass:
 
-1. Native Voice remains structurally unreachable behind a base `holdKeystroke` binding because the
-   held-shortcut branch has higher routing priority. Do not “fix” that while validating the external
-   F10 workflow unless the task explicitly changes scope.
-2. The App is still a monolithic swiftc target. Runtime laziness is phase 1; a later target/module
+1. The App is still a monolithic swiftc target. Runtime laziness is phase 1; a later target/module
    split is the place to stop linking unused frameworks entirely.
-3. The inherited Sparkle release infrastructure is **not trusted for this fork**. Local `-local.`
+2. The inherited Sparkle release infrastructure is **not trusted for this fork**. Local `-local.`
    builds embed no feed/key and disable both scheduled and manual checks. Any future non-local
    release must explicitly supply this fork's own `HYPERVIBE_UPDATE_FEED_URL` and
    `HYPERVIBE_UPDATE_PUBLIC_KEY`; packaging fails otherwise.
-4. The Keychain service string `com.hypervibe.credentials.v6` is retained for compatibility for
-   now; it is not the App's code-signing identity.
+4. Voice credentials now use the fork-owned Keychain service
+   `org.tevriq.siriremoteforge.credentials.v1`. The broker may read the historical
+   `com.hypervibe.credentials.v6` item as a one-way migration source and copy it into the new
+   namespace, but migration does not delete/rewrite the legacy item, preserving stable-App rollback.
+5. The existing `au.holodata...` microphone system-component identifiers are intentionally
+   unchanged in PR #1. Their separate ownership/upgrade migration is tracked in Issue #3.
 
 ## Validation gate
 
