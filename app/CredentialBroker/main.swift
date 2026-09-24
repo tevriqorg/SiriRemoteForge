@@ -193,7 +193,8 @@ private enum CodeSigningPeer {
         // Trust continuity is intentionally Team + bundle identifier, not one leaf certificate.
         // Apple Development certificates expire/rotate; a different Team with the same bundle id
         // still fails this requirement.
-        return #"identifier "#(identifier)" and anchor apple generic and certificate leaf[subject.OU] = "#(teamID)""#
+        return "identifier \"\(identifier)\" and anchor apple generic "
+            + "and certificate leaf[subject.OU] = \"\(teamID)\""
     }
 
     private static func teamIdentifier() -> String? {
