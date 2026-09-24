@@ -16,6 +16,10 @@ For the current `button.siri = holdKeystroke(f10)` workflow:
 There is no 0.2 second activation gate for `holdKeystroke`. Very short presses, long thinking pauses,
 silence and environmental sound are preserved. VAD must never decide the Raw boundary.
 
+If the user disables Corpus while a physical attempt is already recording, that attempt still runs
+to its release edge and is finalized normally. The setting applies to the **next** physical attempt;
+capture-time policy never truncates a Raw sample halfway through.
+
 `pushToTalk` and Native Voice are separate features and retain their own promotion/tap semantics.
 
 ## Storage
@@ -37,9 +41,12 @@ Directory permissions are 0700. Sample files are 0600.
 
 ### audio.wav
 
-Mono PCM16 produced by the existing `VoiceAudioCaptureSession`. The capture chooses the live Siri
-Remote ring when available and otherwise falls back to the built-in microphone ring. The chosen
-source is recorded in `capture.json`.
+Mono PCM16 produced by the existing `VoiceAudioCaptureSession`. When the Siri Remote producer was
+already active at the physical press edge, Corpus may select the remote ring. If that producer is
+cold and begins only after the press, Corpus deliberately keeps the built-in microphone probe that
+covered the utterance beginning rather than switching late and risking clipped first words. The
+chosen source is always recorded in `capture.json`. Native Voice keeps its separate remote-first
+policy.
 
 Corpus does **not** retain the full utterance PCM in memory. Capture/state ownership is established
 on the physical press edge, while sample-directory creation and the initial Accessibility probe are
