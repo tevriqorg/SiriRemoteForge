@@ -1007,8 +1007,12 @@ class RemoteInputHandler {
         }
 
         // 2) Held external keystroke: a true held shortcut mirrors the physical button exactly.
-        //    Press posts key-down immediately; release posts key-up immediately. The combo is
-        //    captured at press time so layer/config/app changes cannot orphan its release.
+        //    Press posts key-down immediately; release posts key-up immediately. This route owns the
+        //    whole physical lifecycle and is intentionally terminal: when button.siri is bound to
+        //    holdKeystroke(F10), Native Voice / .double / .triple / .hold variants on that same
+        //    physical Side press are not candidates. Reintroducing those variants would require
+        //    delaying F10 again, which is explicitly not the current product behavior.
+        //    The combo is captured at press time so layer/config/app changes cannot orphan release.
         if !pressed && heldKeystrokes[buttonName] != nil {
             stopHeldKeystroke(buttonName)
             return
