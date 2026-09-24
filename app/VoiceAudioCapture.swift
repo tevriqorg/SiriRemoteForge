@@ -57,6 +57,7 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
     private let retainPCM: Bool
     private let streamChunks: Bool
     private let onPCMChunk: (Data) -> Void
+    private let preserveBeginningWhenRemoteCold: Bool
 
     private var timer: DispatchSourceTimer?
     private var startedAtNanoseconds: UInt64 = 0
@@ -100,6 +101,7 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
          onFirstAudioChunk: @escaping () -> Void = {},
          retainPCM: Bool = true,
          streamChunks: Bool = true,
+         preserveBeginningWhenRemoteCold: Bool = false,
          onPCMChunk: @escaping (Data) -> Void = { _ in }) {
         self.minimumDuration = max(0, minimumDuration)
         self.maxDuration = max(1, maxDuration)
@@ -108,6 +110,7 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
         self.onFirstAudioChunk = onFirstAudioChunk
         self.retainPCM = retainPCM
         self.streamChunks = streamChunks
+        self.preserveBeginningWhenRemoteCold = preserveBeginningWhenRemoteCold
         self.onPCMChunk = onPCMChunk
         var localContinuation: AsyncStream<Data>.Continuation!
         // Native Voice consumes the stream and retains final PCM. Corpus explicitly disables both
@@ -217,7 +220,15 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
             }
 
             if remoteWasLive && remoteAdvancedFrames >= 960 {
-                select(.remote)
+                // Corpus values a complete utterance over microphone provenance. If the remote
+                // producer was cold at the physical press edge, its ring has no trustworthy
+                // pre-roll for the sentence beginning; keep the built-in probe that covered that
+                // edge instead. Native Voice keeps the historic remote-first behavior.
+                if preserveBeginningWhenRemoteCold && !remoteWasActiveAtStart {
+                    select(.builtIn)
+                } else {
+                    select(.remote)
+                }
             } else if now - startedAtNanoseconds >= probeNanoseconds {
                 select(.builtIn)
             }
