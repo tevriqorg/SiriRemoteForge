@@ -1845,6 +1845,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let recorder = ensureVoiceCorpusRecorder()
             rmDebug("🗂 corpus: enabled root=\(recorder.rootURL.path)")
         }
+        // Turning Corpus off is intentionally prospective. Never truncate an active physical
+        // press/release sample or its post-release attribution window; the next Side attempt simply
+        // won't call begin() while the setting remains off.
         Loc.shared.apply(configValue: t.interfaceLanguage)
         // Visual-QC only: render the installed App in another supported language without writing
         // the user's config.jsonc or legacy defaults. Production launches never pass this flag.
