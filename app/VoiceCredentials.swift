@@ -502,8 +502,10 @@ private final class VoiceCredentialBrokerClient {
     }
 
     private static func teamIdentifier() -> String? {
-        var ownCode: SecCode?
-        guard SecCodeCopySelf([], &ownCode) == errSecSuccess, let ownCode else { return nil }
+        var ownCode: SecStaticCode?
+        let bundleURL = Bundle.main.bundleURL as CFURL
+        guard SecStaticCodeCreateWithPath(bundleURL, [], &ownCode) == errSecSuccess,
+              let ownCode else { return nil }
         var information: CFDictionary?
         guard SecCodeCopySigningInformation(
             ownCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information
