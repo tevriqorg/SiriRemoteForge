@@ -77,20 +77,33 @@ int srm_ring_writer_open(void)
         return -1;
     }
 
-    // Publish an inactive, empty, fully-described ring. Never unlink/recreate the object:
-    // coreaudiod may already have this exact kernel object mapped.
-    atomic_store_explicit(&shared->producerActive, 0, memory_order_release);
-    shared->magic = SRM_MAGIC;
-    shared->version = SRM_VERSION;
-    shared->sampleRate = 48000;
-    shared->channels = SRM_CHANNELS;
-    shared->ringFrames = SRM_RING_FRAMES;
-    memset(shared->ring, 0, sizeof(shared->ring));
-    atomic_store_explicit(&shared->writeIndex, 0, memory_order_release);
+    if (shared->magic == SRM_MAGIC && shared->version == SRM_VERSION &&
+        shared->sampleRate == 48000 && shared->channels == SRM_CHANNELS &&
+        shared->ringFrames == SRM_RING_FRAMES)
+    {
+        // Preserve the monotonic frame total across router process restarts. Readers may have
+        // captured a baseline from the previous producer epoch while holding this same shm object;
+        // resetting writeIndex to zero makes fresh audio look older than that baseline and can
+        // strand them at zero frames. The ring slots are overwritten naturally as new audio lands.
+        gWriteIndex = atomic_load_explicit(&shared->writeIndex, memory_order_acquire);
+        atomic_store_explicit(&shared->producerActive, 0, memory_order_release);
+    }
+    else
+    {
+        // Fresh or incompatible region: publish a clean, fully-described ring.
+        atomic_store_explicit(&shared->producerActive, 0, memory_order_release);
+        shared->magic = SRM_MAGIC;
+        shared->version = SRM_VERSION;
+        shared->sampleRate = 48000;
+        shared->channels = SRM_CHANNELS;
+        shared->ringFrames = SRM_RING_FRAMES;
+        memset(shared->ring, 0, sizeof(shared->ring));
+        atomic_store_explicit(&shared->writeIndex, 0, memory_order_release);
+        gWriteIndex = 0;
+    }
 
     gFileDescriptor = descriptor;
     gShared = shared;
-    gWriteIndex = 0;
     gLastError[0] = '\0';
     return 0;
 }
