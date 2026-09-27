@@ -39,6 +39,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var gattDiagnostics: GATTDiagnostics?
     /// Feeds the built-in mic into the "Siri Remote Mic" device when Siri isn't held (Phase 2b).
     private var builtinMicFeeder: BuiltinMicFeeder?
+    /// Long-term local dataset capture for the external Siri-button voice route. This remains
+    /// independent from Native Voice/cloud transcription and allocates capture work only per hold.
+    private var voiceCorpusRecorder: VoiceCorpusRecorder?
     /// App-native low-latency speech-to-text. Separate from the legacy external PTT hotkey route.
     private var voiceDictation: VoiceDictationCoordinator?
     /// Pre-rendered, paired native-Voice edge sounds. The existing Layer 1 external workflow keeps
@@ -1244,92 +1247,124 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let config = ConfigStore.loadConfig()
         SystemControlState.prewarm()
 
-        let persistentStatus = StatusWidgetController(
-            layers: config.settings.layers,
-            icons: config.settings.icons,
-            enabled: config.settings.statusWidgetEnabled
-        )
-        statusWidget = persistentStatus
-        let pipelineHUD = VoicePipelineHUDController(
-            layers: config.settings.layers,
-            icons: config.settings.icons,
-            enabled: config.settings.dictation.pipelineOverlayEnabled
-        )
-        voicePipelineHUD = pipelineHUD
+        // Heavy presentation surfaces are launch-gated. Turning one off in Settings and
+        // restarting now means its windows/layers are never constructed in that process.
+        let persistentStatus: StatusWidgetController?
+        if config.settings.statusWidgetEnabled {
+            let widget = StatusWidgetController(
+                layers: config.settings.layers,
+                icons: config.settings.icons,
+                enabled: true
+            )
+            statusWidget = widget
+            persistentStatus = widget
+        } else {
+            persistentStatus = nil
+            print("🪶 Status Widget disabled at launch — surface not created")
+        }
+
+        let pipelineHUD: VoicePipelineHUDController?
+        if config.settings.dictation.enabled
+            && config.settings.dictation.pipelineOverlayEnabled {
+            let hud = VoicePipelineHUDController(
+                layers: config.settings.layers,
+                icons: config.settings.icons,
+                enabled: true
+            )
+            voicePipelineHUD = hud
+            pipelineHUD = hud
+        } else {
+            pipelineHUD = nil
+            print("🪶 Voice Pipeline HUD disabled at launch — surface not created")
+        }
 
         // Tuning: config.jsonc's `settings` block is the source of truth — always seed from it (a
         // stale saved tune no longer shadows config edits), and re-seed on every hot-reload below.
         let model = SettingsModel(initial: TuneSettings(seed: config.settings))
-        let dictation = VoiceDictationCoordinator(runtime: model.voiceRuntime)
-        voiceDictation = dictation
-        let voiceFeedback = VoiceFeedbackSound()
-        voiceFeedbackSound = voiceFeedback
-        prepareVoiceDictionary(config.settings.dictation.dictionary)
-        dictation.configureHistoryProfiles(config.appProfiles)
-        dictation.configure(
-            config.settings.dictation,
-            prewarmModes: config.settings.dictation.outputModesToPrewarm(
-                layerIDs: config.settings.layers.map(\.id)
+
+        // Native Voice is an optional subsystem, not part of the remote-control core. When Voice
+        // is disabled at launch, do not allocate its coordinator, preload credentials/dictionary,
+        // create feedback players, or prewarm transcription/cleanup sessions. Enabling Voice from
+        // that state intentionally takes effect after relaunch; disabling a running Voice subsystem
+        // tears down its warm sessions through configure(), and a relaunch releases the objects too.
+        let dictation: VoiceDictationCoordinator?
+        let voiceFeedback: VoiceFeedbackSound?
+        if config.settings.dictation.enabled {
+            let coordinator = VoiceDictationCoordinator(runtime: model.voiceRuntime)
+            voiceDictation = coordinator
+            dictation = coordinator
+
+            let feedback = config.settings.dictation.feedbackSoundsEnabled
+                ? VoiceFeedbackSound() : nil
+            voiceFeedbackSound = feedback
+            voiceFeedback = feedback
+
+            prepareVoiceDictionary(config.settings.dictation.dictionary)
+            coordinator.configureHistoryProfiles(config.appProfiles)
+            coordinator.configure(
+                config.settings.dictation,
+                prewarmModes: config.settings.dictation.outputModesToPrewarm(
+                    layerIDs: config.settings.layers.map(\.id)
+                )
             )
-        )
-        model.voiceCredentials.onCredentialsChanged = { [weak self, weak model] in
-            guard let self, let model else { return }
-            let settings = model.tune.dictation
-            let layerIDs = model.config?.settings.layers.map(\.id) ?? []
-            self.configureVoiceImmediately(settings, layerIDs: layerIDs,
-                                           forceReconnect: true)
+            model.voiceCredentials.onCredentialsChanged = { [weak self, weak model] in
+                guard let self, let model else { return }
+                let settings = model.tune.dictation
+                let layerIDs = model.config?.settings.layers.map(\.id) ?? []
+                self.configureVoiceImmediately(settings, layerIDs: layerIDs,
+                                               forceReconnect: true)
+            }
+            model.voiceCredentials.preload()
+        } else {
+            dictation = nil
+            voiceFeedback = nil
+            print("🪶 Native Voice disabled at launch — coordinator and prewarm skipped")
         }
-        model.voiceCredentials.preload()
         model.onApply = { [weak self, weak model] tune in
             self?.applyTune(tune)
             model?.noteConfigSavePending(from: .tuning)
             self?.scheduleTunePersist()   // write slider values back into config.jsonc (debounced)
         }
         model.config = config   // publish the live config to the Settings "Layout" tab
-        let updates = UpdateManager()
-        updateManager = updates
-        model.onCheckForUpdates = { [weak updates] in updates?.checkForUpdates() }
-        updates.onUpdateAvailable = { [weak model, weak menuBar = menuBarManager] version in
-            model?.availableUpdateVersion = version
-            menuBar?.setAvailableUpdate(version: version)
-        }
-        updates.onUpdateCleared = { [weak model, weak menuBar = menuBarManager] in
-            model?.availableUpdateVersion = nil
-            menuBar?.setAvailableUpdate(version: nil)
-        }
-        // Install every callback before starting: a cached/local feed can complete on the next
-        // run-loop turn, and the very first gentle reminder must not race past the UI observers.
-        updates.start(
-            automaticChecks: model.tune.automaticUpdateChecksEnabled,
-            automaticDownloads: model.tune.automaticallyDownloadUpdatesEnabled
-        )
         settingsModel = model
+
+        // Sparkle is optional runtime infrastructure. Automatic checks disabled at launch means no
+        // UpdateManager/SPU controller is created at all; a manual check or enabling automatic
+        // checks later creates it on demand.
+        model.onCheckForUpdates = { [weak self] in
+            Task { @MainActor in self?.checkForUpdatesManually() }
+        }
+        if model.softwareUpdatesAvailable && model.tune.automaticUpdateChecksEnabled {
+            _ = ensureUpdateManager()
+        } else if !model.softwareUpdatesAvailable {
+            print("🪶 Local development build — Sparkle updater not created")
+        } else {
+            print("🪶 Automatic updates disabled at launch — Sparkle controller not created")
+        }
+
         let settingsWin = SettingsWindowController(model: model)
         settingsWindow = settingsWin
         menuBarManager.onOpenSettings = { [weak settingsWin] in settingsWin?.show() }
         menuBarManager.onOpenSetup = { [weak self] in self?.showSetupWizard() }
-        menuBarManager.onCheckForUpdates = { [weak updates] in updates?.checkForUpdates() }
+        if model.softwareUpdatesAvailable {
+            menuBarManager.onCheckForUpdates = { [weak self] in
+                Task { @MainActor in self?.checkForUpdatesManually() }
+            }
+        } else {
+            menuBarManager.onCheckForUpdates = nil
+        }
 
-        // Demo Mode is a passive surface inside this process. Its button state comes from the
-        // already-deduplicated HID edges and its touch point comes from the existing multitouch
-        // stream; normal actions continue through their unchanged paths underneath it.
-        let demoWindow = DemoModeWindowController()
-        demoModeWindow = demoWindow
-        demoWindow.onVisibilityChanged = { [weak self] visible in
-            self?.menuBarManager.updateDemoModeVisibility(visible)
-            self?.refreshRawTouchObserver()
+        // Demo Mode is also launch-lazy. Its controller registers screen/Space observers in init,
+        // so keeping the feature off must mean the controller itself does not exist.
+        menuBarManager.onToggleDemoMode = { [weak self] in
+            guard let self else { return }
+            self.setDemoRemoteEnabled(!(self.demoModeWindow?.isVisible ?? false))
         }
-        demoWindow.onEnabledChangeRequested = { [weak self] enabled in
-            self?.setDemoRemoteEnabled(enabled)
+        remoteInputHandler?.onPhysicalButtonStateChanged = { [weak self] rawName, pressed in
+            self?.demoModeWindow?.setPhysicalButton(rawName, pressed: pressed)
         }
-        menuBarManager.onToggleDemoMode = { [weak self, weak demoWindow] in
-            self?.setDemoRemoteEnabled(!(demoWindow?.isVisible ?? false))
-        }
-        remoteInputHandler?.onPhysicalButtonStateChanged = { [weak demoWindow] rawName, pressed in
-            demoWindow?.setPhysicalButton(rawName, pressed: pressed)
-        }
-        remoteInputHandler?.onPhysicalButtonStateReset = { [weak demoWindow] in
-            demoWindow?.resetPhysicalButtons()
+        remoteInputHandler?.onPhysicalButtonStateReset = { [weak self] in
+            self?.demoModeWindow?.resetPhysicalButtons()
         }
         // Convenience: `./HyperVibe --settings` pops the window open immediately.
         if CommandLine.arguments.contains("--settings") {
@@ -1453,9 +1488,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Release-to-select needs to be visible: a track that fills while a button is held, with a
         // tick per bound stage and the name of the action that runs if it is released right now.
-        let progress = HoldProgressHUD()
-        holdHUD = progress
-        progress.prewarm()
+        let progress: HoldProgressHUD?
+        if config.settings.holdHUDEnabled {
+            let hud = HoldProgressHUD()
+            holdHUD = hud
+            hud.prewarm()
+            progress = hud
+        } else {
+            progress = nil
+            print("🪶 Hold HUD disabled at launch — prewarm skipped")
+        }
         remoteInputHandler?.onHoldBegan = { [weak self, weak persistentStatus] startedAt, base, stages in
             persistentStatus?.beginHold(startedAt: startedAt, base: base, stages: stages)
             guard self?.holdHUDEnabled == true else { return }
@@ -1464,7 +1506,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return .init(label: v.label, image: v.image, symbolName: v.symbolName,
                              iconOnly: v.iconOnly, tint: v.tint, symbolCue: v.symbolCue)
             }
-            progress.begin(startedAt: startedAt,
+            progress?.begin(startedAt: startedAt,
                            base: base.map { face($0.action, $0.presentation) },
                            stages: stages.map {
                                var f = face($0.action, $0.presentation)
@@ -1475,23 +1517,48 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         remoteInputHandler?.onHoldEnded = { [weak persistentStatus] firedIndex in
             // `end` is safe even when the large HUD was disabled; calling it unconditionally also
             // dismisses a HUD immediately if the user switches that preference off mid-hold.
-            progress.end(firedIndex: firedIndex)
+            progress?.end(firedIndex: firedIndex)
             persistentStatus?.endHold(firedIndex: firedIndex)
         }
-        remoteInputHandler?.onContinuousActionBegan = { [weak self, weak persistentStatus] handled in
+        remoteInputHandler?.onContinuousActionBegan = {
+            [weak self, weak persistentStatus, weak model] handled in
+            let externalVoiceAttempt: Bool
+            switch handled.action {
+            case .holdKeystroke(_), .pushToTalk(_):
+                externalVoiceAttempt = handled.key == "button.siri"
+            default:
+                externalVoiceAttempt = false
+            }
+            let corpusCandidate =
+                externalVoiceAttempt && model?.tune.corpusCaptureEnabled == true
+            if externalVoiceAttempt && !corpusCandidate {
+                // Even with capture disabled now, this new physical F10/voice attempt must close
+                // any older sample's delayed text watcher so its result cannot be mis-attributed.
+                self?.voiceCorpusRecorder?.invalidatePendingObservationForNewAttempt()
+            }
             if case .pushToTalk = handled.action {
                 self?.builtinMicFeeder?.setVoiceMetering(true)
+            } else if corpusCandidate {
+                // Corpus capture reads the same remote/built-in rings as Native Voice. Raising
+                // metering demand here wakes the remote pipeline even though the external F10
+                // workflow itself never enters VoiceDictationCoordinator.
+                self?.builtinMicFeeder?.setVoiceMetering(true)
+            }
+            if corpusCandidate {
+                self?.ensureVoiceCorpusRecorder().begin(handled)
             }
             persistentStatus?.beginContinuousAction(handled)
         }
         remoteInputHandler?.onContinuousActionEnded = { [weak self, weak persistentStatus] key in
+            self?.voiceCorpusRecorder?.end(actionKey: key)
             self?.builtinMicFeeder?.setVoiceMetering(false)
             persistentStatus?.endContinuousAction(key: key)
         }
         // Native dictation starts its expensive work on the raw press edge. The handler still owns
         // tap/hold disambiguation, so a quick side-button tap never flashes Voice or inserts audio.
-        remoteInputHandler?.shouldUseNativeDictation = { [weak model] in
-            guard let settings = model?.tune.dictation else { return false }
+        remoteInputHandler?.shouldUseNativeDictation = { [weak self, weak model] in
+            guard self?.voiceDictation != nil,
+                  let settings = model?.tune.dictation else { return false }
             return settings.resolvedOutputMode(for: nil) != nil
         }
         remoteInputHandler?.onNativeDictationPrimed = {
@@ -1512,16 +1579,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         remoteInputHandler?.onNativeDictationMisconfigured = { [weak dictation] in
             dictation?.reportConfigurationError(VoiceAPIError.missingOpenAIKeyMessage)
         }
-        remoteInputHandler?.shouldCopyLastNativeDictationOnDouble = { [weak model] in
-            guard let settings = model?.tune.dictation else { return false }
+        remoteInputHandler?.shouldCopyLastNativeDictationOnDouble = { [weak self, weak model] in
+            guard self?.voiceDictation != nil,
+                  let settings = model?.tune.dictation else { return false }
             return settings.copyLastOnSideButtonDouble
                 && settings.resolvedOutputMode(for: nil) != nil
         }
         remoteInputHandler?.onCopyLastNativeDictation = { [weak dictation] in
             dictation?.copyLastTranscript() == true
         }
-        remoteInputHandler?.shouldUseVoiceModeCycleChord = { [weak model] in
-            model?.tune.dictation.enabled == true
+        remoteInputHandler?.shouldUseVoiceModeCycleChord = { [weak self, weak model] in
+            self?.voiceDictation != nil && model?.tune.dictation.enabled == true
         }
         remoteInputHandler?.onVoiceModeCycleRequested = {
             [weak self, weak model, weak persistentStatus, weak pipelineHUD] in
@@ -1539,10 +1607,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             pipelineHUD?.showVoiceModeSwitch(next)
             print("🎙 Voice mode → \(next.rawValue) (Mute + Side)")
         }
-        dictation.onMeteringChanged = { [weak self] active in
+        dictation?.onMeteringChanged = { [weak self] active in
             self?.builtinMicFeeder?.setVoiceMetering(active)
         }
-        dictation.onListeningBegan = {
+        dictation?.onListeningBegan = {
             [weak persistentStatus, weak pipelineHUD, weak model, weak voiceFeedback] handled in
             persistentStatus?.beginContinuousAction(handled)
             pipelineHUD?.beginListening()
@@ -1555,26 +1623,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             pipelineHUD?.suppressMeter(for: VoiceFeedbackSound.acousticExclusionDuration)
             voiceFeedback?.play(.began, volume: settings.feedbackSoundVolume)
         }
-        dictation.onSelectionEditingBegan = { [weak persistentStatus, weak pipelineHUD]
+        dictation?.onSelectionEditingBegan = { [weak persistentStatus, weak pipelineHUD]
             characterCount, applicationName in
             persistentStatus?.showSelectionEditing(characterCount: characterCount,
                                                    applicationName: applicationName)
             pipelineHUD?.showSelectionEditing(characterCount: characterCount,
                                               applicationName: applicationName)
         }
-        dictation.onListeningEnded = { [weak persistentStatus, weak pipelineHUD] key in
+        dictation?.onListeningEnded = { [weak persistentStatus, weak pipelineHUD] key in
             persistentStatus?.endNativeContinuousAction(key: key)
             pipelineHUD?.endListening()
         }
-        dictation.onShortCaptureDiscarded = { [weak pipelineHUD] in
+        dictation?.onShortCaptureDiscarded = { [weak pipelineHUD] in
             pipelineHUD?.dismissShortCapture()
         }
-        dictation.onCaptureStopped = { [weak model, weak voiceFeedback] in
+        dictation?.onCaptureStopped = { [weak model, weak voiceFeedback] in
             guard let settings = model?.tune.dictation,
                   settings.feedbackSoundsEnabled else { return }
             voiceFeedback?.play(.ended, volume: settings.feedbackSoundVolume)
         }
-        dictation.onPhaseChanged = { [weak persistentStatus, weak pipelineHUD] phase, message in
+        dictation?.onPhaseChanged = { [weak persistentStatus, weak pipelineHUD] phase, message in
             persistentStatus?.showNativeDictationPhase(phase, message: message)
             pipelineHUD?.showNativeDictationPhase(phase, message: message)
         }
@@ -1599,18 +1667,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { monitor.show() }
         }
 
-        // Radial app launcher. Modal while open: the handler routes every button here, Select
-        // launching what is highlighted and anything else cancelling.
-        let wheel = AppWheelController()
-        appWheel = wheel
-        wheel.configure(apps: config.settings.appWheel)
-        actionExecutor.onAppWheel = { [weak wheel] in
-            guard let wheel = wheel else { return }
+        // Radial app launcher is created only on first summon. Empty/unused configurations now
+        // keep both the controller and its observable model out of the steady-state process.
+        actionExecutor.onAppWheel = { [weak self] in
+            guard let self else { return }
+            let apps = self.settingsModel?.config?.settings.appWheel ?? []
+            let wheel = self.ensureAppWheel(apps: apps)
             wheel.open()
             RemoteInputHandler.isAppWheelOpen = wheel.isOpen
         }
-        remoteInputHandler?.onAppWheelButton = { [weak wheel] button in
-            guard let wheel = wheel else { return }
+        remoteInputHandler?.onAppWheelButton = { [weak self] button in
+            guard let wheel = self?.appWheel else { return }
             if button == "select" { wheel.commit() } else { wheel.cancel() }
             RemoteInputHandler.isAppWheelOpen = wheel.isOpen
         }
@@ -1628,7 +1695,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Explicit developer/demo launch is a one-run visibility override. Ordinary launch,
         // menu-bar control, Settings and hot reload all use settings.demoRemoteEnabled.
         if CommandLine.arguments.contains("--demo-mode") {
-            DispatchQueue.main.async { [weak demoWindow] in demoWindow?.show() }
+            DispatchQueue.main.async { [weak self] in
+                self?.ensureDemoModeWindow().show()
+            }
         }
         remoteInputHandler?.onButtonActivity = { [weak self] in
             self?.touchHandler?.tryReconnectTrackpad()
@@ -1743,13 +1812,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Push cursor-feel settings from config into the touch handler (also called on hot reload).
     /// Push UI tuning values into the running touch handler (initial + on every settings change).
     private func applyTune(_ t: TuneSettings) {
-        prepareVoiceDictionary(t.dictation.dictionary)
-        if t.dictation.enabled { builtinMicFeeder?.prepareVoiceCapture() }
+        // A Voice subsystem that was disabled at process launch stays absent until relaunch. If it
+        // exists, live changes still reconfigure it exactly as before; turning Voice off tears down
+        // its warm sessions without forcing an immediate process restart.
+        if voiceDictation != nil {
+            prepareVoiceDictionary(t.dictation.dictionary)
+            if t.dictation.enabled { builtinMicFeeder?.prepareVoiceCapture() }
+            let dictationSettings = t.dictation
+            let layerIDs = settingsModel?.config?.settings.layers.map(\.id) ?? []
+            scheduleVoiceConfigure(dictationSettings, layerIDs: layerIDs)
+        }
         // Settings callbacks are intentionally plain closures, while the latency state machine is
         // main-actor isolated. Hop explicitly instead of weakening its isolation guarantees.
-        let dictationSettings = t.dictation
-        let layerIDs = settingsModel?.config?.settings.layers.map(\.id) ?? []
-        scheduleVoiceConfigure(dictationSettings, layerIDs: layerIDs)
         touchHandler?.cursorSpeed = CGFloat(t.cursorSpeed)
         touchHandler?.cursorDeadzone = CGFloat(t.cursorDeadzone)
         touchHandler?.accelMin = CGFloat(t.accelMin)
@@ -1767,6 +1841,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         remoteInputHandler?.doubleTapWindow = t.doubleTapWindow
         remoteInputHandler?.spacesModeWindow = t.spacesModeWindow
         findCursorEnabled = t.findCursorEnabled
+        if t.corpusCaptureEnabled, voiceCorpusRecorder == nil {
+            let recorder = ensureVoiceCorpusRecorder()
+            rmDebug("🗂 corpus: enabled root=\(recorder.rootURL.path)")
+        }
+        // Turning Corpus off is intentionally prospective. Never truncate an active physical
+        // press/release sample or its post-release attribution window; the next Side attempt simply
+        // won't call begin() while the setting remains off.
         Loc.shared.apply(configValue: t.interfaceLanguage)
         // Visual-QC only: render the installed App in another supported language without writing
         // the user's config.jsonc or legacy defaults. Production launches never pass this flag.
@@ -1777,16 +1858,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let automaticUpdateChecks = t.automaticUpdateChecksEnabled
         let automaticUpdateDownloads = t.automaticallyDownloadUpdatesEnabled
-        Task { @MainActor [weak updateManager] in
-            updateManager?.apply(
-                automaticChecks: automaticUpdateChecks,
-                automaticDownloads: automaticUpdateDownloads
-            )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if self.settingsModel?.softwareUpdatesAvailable != true {
+                return
+            }
+            if automaticUpdateChecks {
+                self.ensureUpdateManager()?.apply(
+                    automaticChecks: true,
+                    automaticDownloads: automaticUpdateDownloads
+                )
+            } else {
+                // If the updater already exists (because checks used to be on, or the user made a
+                // manual check), disable scheduling live. A restart then drops the object entirely.
+                self.updateManager?.apply(
+                    automaticChecks: false,
+                    automaticDownloads: automaticUpdateDownloads
+                )
+            }
         }
         statusItem?.isVisible = t.menuBarIconEnabled
         statusWidget?.setEnabled(t.statusWidgetEnabled)
         voicePipelineHUD?.setEnabled(t.dictation.pipelineOverlayEnabled)
-        demoModeWindow?.setVisible(t.demoRemoteEnabled)
+        if t.demoRemoteEnabled {
+            ensureDemoModeWindow().setVisible(true)
+        } else {
+            demoModeWindow?.setVisible(false)
+        }
         let wasShowingLayerHUD = layerHUDEnabled
         layerHUDEnabled = t.layerHUDEnabled
         if wasShowingLayerHUD, !t.layerHUDEnabled { layerHUD?.hideImmediately() }
@@ -1819,6 +1917,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func scheduleVoiceConfigure(_ settings: Config.DictationSettings,
                                         layerIDs: [String]) {
+        guard voiceDictation != nil else { return }
         voiceConfigureWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
@@ -1837,6 +1936,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func configureVoiceImmediately(_ settings: Config.DictationSettings,
                                            layerIDs: [String],
                                            forceReconnect: Bool = false) {
+        guard voiceDictation != nil else { return }
         voiceConfigureWork?.cancel()
         voiceConfigureWork = nil
         Task { @MainActor [weak self] in
@@ -1892,6 +1992,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             s.dragIndicatorEnabled = t.dragIndicatorEnabled
             s.showSetupWizardOnFirstLaunch = t.showSetupWizardOnFirstLaunch
             s.focusFollowsCursor = t.focusFollowsCursor
+            s.corpusCaptureEnabled = t.corpusCaptureEnabled
             s.dictation = t.dictation
             s.circularScroll = t.circularConfig
         }
@@ -1914,6 +2015,77 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Menu-bar and in-window context-menu requests travel through the same Settings model as the
     /// SwiftUI toggle. This keeps the live window, GUI and hot-reloaded JSON on one value.
+    private func ensureVoiceCorpusRecorder() -> VoiceCorpusRecorder {
+        if let voiceCorpusRecorder { return voiceCorpusRecorder }
+        let recorder = VoiceCorpusRecorder(onStorageStatus: { [weak self] message in
+            self?.settingsModel?.corpusStorageError = message
+        })
+        voiceCorpusRecorder = recorder
+        return recorder
+    }
+
+    @MainActor
+    private func ensureUpdateManager() -> UpdateManager? {
+        guard let model = settingsModel else { return nil }
+        if let updateManager { return updateManager }
+
+        let updates = UpdateManager()
+        updateManager = updates
+        updates.onUpdateAvailable = { [weak model, weak menuBar = menuBarManager] version in
+            model?.availableUpdateVersion = version
+            menuBar?.setAvailableUpdate(version: version)
+        }
+        updates.onUpdateCleared = { [weak model, weak menuBar = menuBarManager] in
+            model?.availableUpdateVersion = nil
+            menuBar?.setAvailableUpdate(version: nil)
+        }
+        // Install every callback before starting: a cached/local feed can complete on the next
+        // run-loop turn, and the first gentle reminder must not race past the UI observers.
+        updates.start(
+            automaticChecks: model.tune.automaticUpdateChecksEnabled,
+            automaticDownloads: model.tune.automaticallyDownloadUpdatesEnabled
+        )
+        rmDebug("🪶 Sparkle updater created on demand")
+        return updates
+    }
+
+    @MainActor
+    private func checkForUpdatesManually() {
+        guard settingsModel?.softwareUpdatesAvailable == true,
+              let updates = ensureUpdateManager() else { return }
+        updates.checkForUpdates()
+    }
+
+    private func ensureAppWheel(apps: [String]) -> AppWheelController {
+        if let appWheel {
+            appWheel.configure(apps: apps)
+            return appWheel
+        }
+        let wheel = AppWheelController()
+        wheel.configure(apps: apps)
+        appWheel = wheel
+        rmDebug("🪶 App Wheel controller created on demand")
+        return wheel
+    }
+
+    private func ensureDemoModeWindow() -> DemoModeWindowController {
+        if let demoModeWindow { return demoModeWindow }
+        let demo = DemoModeWindowController()
+        demoModeWindow = demo
+        demo.onVisibilityChanged = { [weak self] visible in
+            self?.menuBarManager.updateDemoModeVisibility(visible)
+            self?.refreshRawTouchObserver()
+        }
+        demo.onEnabledChangeRequested = { [weak self] enabled in
+            self?.setDemoRemoteEnabled(enabled)
+        }
+        if let connected = lastConnectedState {
+            demo.setConnected(connected)
+        }
+        rmDebug("🪶 Demo Remote controller created on demand")
+        return demo
+    }
+
     private func setDemoRemoteEnabled(_ enabled: Bool) {
         guard let model = settingsModel else {
             demoModeWindow?.setVisible(enabled)
@@ -1964,6 +2136,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // termination. Anything system-visible has to be undone on this thread, now.
         remoteInputHandler?.setRemoteDevice(nil)
         remoteInputHandler?.endStickyDrag()
+        // Device teardown closes any live held shortcut first. Corpus writes are normally
+        // asynchronous, so explicitly drain them before the process can disappear.
+        voiceCorpusRecorder?.flushForTermination()
 
         // Flush a debounced tune write instead of letting it die with the process. config.jsonc is
         // the single source of truth and tuning re-seeds from it at launch, so a slider moved within

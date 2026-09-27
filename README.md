@@ -118,8 +118,8 @@ older DriverKit experiment:
 - **`mic/`** — the working **virtual microphone**: a CoreAudio HAL plug-in that publishes a
   "Siri Remote Mic" input device, fed by a Bluetooth-voice router and an on-demand root daemon.
   See [🎙️ Turn the remote into a microphone](#microphone).
-- **`driverkit/`** — an earlier HIDDriverKit microphone-replacement proof of concept (superseded by
-  `mic/`; kept for reference). Build/sign scripts do not install or activate it.
+- **`deprecated/driverkit/`** — archived HIDDriverKit microphone-replacement proof of concept,
+  superseded by `mic/`. It is historical reference only and is not part of the active build.
 
 ---
 
@@ -139,7 +139,7 @@ action.
 ## Install a beta build
 
 Published beta builds on the
-[Releases page](https://github.com/HOLODATA-COM/SiriRemoteForge/releases) provide three Apple-silicon
+[Releases page](https://github.com/tevriqorg/SiriRemoteForge/releases) provide three Apple-silicon
 downloads:
 
 - **Native Full Installer (recommended)** — open `HyperVibe-Full-Setup-…-arm64.pkg`. The standard
@@ -163,13 +163,13 @@ the private MultitouchSupport callback used by the remote trackpad.
 ```sh
 cd app
 ./build.sh              # compiles the app + SiriRemoteCore into ./HyperVibe
-./create_app_bundle.sh  # wraps it into HyperVibe.app (icon auto-generated, code-signed)
-open HyperVibe.app
+./create_app_bundle.sh  # stages .build/HyperVibe-Dev.app (icon auto-generated, signed)
+# Verify the staged candidate first; do not launch it while the installed stable App is running.
 ```
 
 `build.sh` produces a bare `./HyperVibe` you can also run directly (`./HyperVibe --settings` opens
 the settings window on launch; `--system-check` opens the live readiness screen).
-`create_app_bundle.sh` packages a double-clickable `HyperVibe.app`.
+`create_app_bundle.sh` stages a double-clickable `.build/HyperVibe-Dev.app` by default. Installing or launching that candidate is a separate rollback-protected validation step.
 
 **It's a menu-bar app** (no Dock icon): after launching, click the walkie-talkie icon in the menu bar
 for **Settings… / Quit**. If the menu-bar icon is hidden (e.g. behind the notch), just **double-click
@@ -191,17 +191,22 @@ subsystem; the user does not have to quit or restart the app. The same System Ch
 Microphone, Automation, Siri Remote Mic components and PacketLogger, and remains available from the
 menu bar and Settings.
 
-The bundle is signed **without** the hardened runtime on purpose — under the hardened runtime the
-private MultitouchSupport touch callback trips code-signing enforcement and the app is killed the
-instant you touch the trackpad. `create_app_bundle.sh` prefers a stable local self-signed identity
-(`siriRemote Local Signing`) for local builds, so permissions survive rebuilds. It refuses to fall
-back silently; ad-hoc signing is available only when a public Release build requests it explicitly.
+The outer bundle is signed **without** the hardened runtime on purpose — under the hardened runtime
+the private MultitouchSupport touch callback trips code-signing enforcement and the app is killed the
+instant you touch the trackpad. Development builds in this fork use the developer's own
+`Apple Development:` identity (or an explicit `HYPERVIBE_SIGN_ID`) and never silently fall back to
+ad-hoc signing. The default fork bundle id is `org.tevriq.siriremoteforge`; override it with
+`HYPERVIBE_BUNDLE_ID` when needed. Changing certificate or bundle id is a macOS code-identity
+migration and may require granting TCC permissions again.
 
 ### Software updates
 
-HyperVibe checks its release feed daily by default. It can download a newer **app-only** archive in
-the background, or the user can choose **Check for Updates…** from either Settings or the menu bar.
-Sparkle verifies every archive against the Ed25519 public key embedded in the app before extraction.
+Packaged release builds can use Sparkle for updates. Local `-local.` development builds disable
+Sparkle entirely, including manual checks, and do not embed a feed URL or update public key.
+A non-local release build must explicitly provide this fork's own `HYPERVIBE_UPDATE_FEED_URL` and
+`HYPERVIBE_UPDATE_PUBLIC_KEY`; packaging fails if either is missing. Do not reuse the inherited
+upstream appcast/key for this fork. Sparkle verifies every archive against the explicitly supplied
+Ed25519 public key before extraction.
 The updater replaces only `HyperVibe.app`, so ordinary updates neither restart system audio nor ask
 for an administrator password. Full Setup remains a separate manual download for installing or
 refreshing the virtual microphone stack.
@@ -810,12 +815,10 @@ SiriRemoteForge/
 │   ├── router/            # srm_router — decode BLE voice notifications → shared-memory ring
 │   ├── captured/          # on-demand root LaunchDaemon (runs PacketLogger + router)
 │   └── README.md
-├── dist/                  # safe, versioned app-only + Full Setup Release packaging
-└── driverkit/             # earlier Siri Remote microphone DEXT proof of concept (superseded by mic/)
-    ├── SiriRemoteMicDriver.xcodeproj
-    ├── Host/               # separate OSSystemExtensionRequest host
-    ├── build-driver.sh    # unsigned DEXT build only
-    └── build-host.sh      # embeds DEXT; does not launch or activate
+├── dist/                  # inherited release packaging; not part of the local dev smoke path
+└── deprecated/            # historical material; never authoritative for current development
+    ├── HANDOFF-legacy-upstream-2026-09-23.md
+    └── driverkit/         # superseded Siri Remote microphone DEXT proof of concept
 ```
 
 The app target is named `HyperVibe` internally (historical, from the fork below); the product is
@@ -824,14 +827,15 @@ The app target is named `HyperVibe` internally (historical, from the fork below)
 ## Development
 
 ```sh
-cd SiriRemoteCore && swift test     # unit tests for the engine
-cd app && ./build.sh                # build the app
-cd driverkit && ./build-host.sh     # build-only DEXT + host check
+swift test --package-path SiriRemoteCore   # unit tests for the engine
+cd app && ./build.sh                       # build the app
+# Then package with your Apple Development identity; see AGENTS.md.
 ```
 
 Debug logging goes to `/tmp/hypervibe.log` (HID events, device selection, executed actions).
 
-Current development state and continuation notes live in [`HANDOFF.md`](HANDOFF.md). The **working**
+Current development state and continuation notes live in [`HANDOFF.md`](HANDOFF.md). Superseded
+handoffs and experiments are retained under [`deprecated/`](deprecated/README.md). The **working**
 microphone device is the `mic/` Bluetooth-router pipeline described [above](#microphone). Getting
 there meant ruling out the *in-band* approaches first; those dead ends and the full evidence log live
 in [`docs/mic-reverse-engineering.md`](docs/mic-reverse-engineering.md).
@@ -846,10 +850,9 @@ The dead ends (all opt-in dev flags, absent from normal launch — kept for refe
   on the tested product `0x0315`);
 - `--direct-ptt` — the driver's hidden Feature report `0x99` (the tested remote returns `kIOReturnError`).
 
-An earlier native **DriverKit** proof of concept in [`driverkit/`](driverkit/README.md) builds and
-development-signs, but a real host launch is killed by AMFI before `main` (`Code=-413`,
-`No matching profile found`): a Personal development team cannot issue the required DriverKit HID
-capabilities. It is superseded by `mic/` and kept only for reference.
+An earlier native **DriverKit** proof of concept is archived under
+[`deprecated/driverkit/`](deprecated/driverkit/README.md). It was superseded by `mic/` and is not
+part of the active development or build path.
 
 Development invariant: a diagnostic instance temporarily replaces the normal app; it does not run
 alongside it. After every diagnostic, stop the flagged process and restore exactly one no-argument

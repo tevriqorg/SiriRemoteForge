@@ -299,8 +299,9 @@ RELEASE kernel will not terminate the protected Apple service merely because the
 
 ### Native HIDDriverKit replacement PoC — implementation complete, provisioning blocked
 
-A separate local project now lives in [`driverkit/`](../driverkit/README.md). Its build and signing
-workflow deliberately does not alter HyperVibe's signing or runtime:
+The superseded proof of concept is preserved at
+[`deprecated/driverkit/`](../deprecated/driverkit/README.md). Its historical build and signing
+workflow did not alter HyperVibe's active signing or runtime:
 
 - `SiriRemoteMicDriver` subclasses `IOUserHIDEventService` and overrides `handleReport` to log up to
   the complete 209-byte raw report as hexadecimal;

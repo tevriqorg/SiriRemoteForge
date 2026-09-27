@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
     <title>HyperVibe</title>
-    <organization>com.hypervibe</organization>
+    <organization>org.tevriq</organization>
     <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
     <options customize="never" require-scripts="true" hostArchitectures="arm64"/>
     <welcome file="welcome.html"/>
@@ -16,13 +16,13 @@
     </choices-outline>
     <choice id="default"/>
     <choice id="hypervibe-full" visible="false">
-        <pkg-ref id="com.hypervibe.full"/>
+        <pkg-ref id="org.tevriq.siriremoteforge.full"/>
     </choice>
 
-    <pkg-ref id="com.hypervibe.full" version="@@VERSION@@">HyperVibePayload.pkg</pkg-ref>
-    <pkg-ref id="com.hypervibe.full">
+    <pkg-ref id="org.tevriq.siriremoteforge.full" version="@@VERSION@@">HyperVibePayload.pkg</pkg-ref>
+    <pkg-ref id="org.tevriq.siriremoteforge.full">
         <must-close>
-            <app id="com.hypervibe.app"/>
+            <app id="org.tevriq.siriremoteforge"/>
         </must-close>
     </pkg-ref>
 </installer-gui-script>

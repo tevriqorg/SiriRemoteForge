@@ -11,6 +11,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  static:
+    name: Diff and shell safety
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Diff whitespace
+        run: git diff --check origin/main...HEAD
+      - name: Shell syntax
+        run: |
+          bash -n \
+            app/create_app_bundle.sh \
+            app/build.sh \
+            dist/build-release.sh \
+            dist/package.sh \
+            dist/update-appcast.sh \
+            dist/verify-published-update.sh \
+            dist/audit-release.sh
+
   core:
     name: Core engine (SwiftPM tests)
     runs-on: macos-15
@@ -24,13 +44,24 @@ jobs:
         run: swift test --package-path SiriRemoteCore
 
   app:
-    name: App (compiles and links)
+    name: App (compiles, links, and stages)
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       # The app is compiled straight with swiftc (no Xcode project) and links the private
-      # MultitouchSupport framework, which ships with macOS — so this only proves it builds.
-      # It cannot RUN here: seizing the remote needs real hardware and Accessibility permission.
+      # MultitouchSupport framework. CI cannot exercise real HID/TCC, but it can prove the binary,
+      # local bundle assembly, nested signing topology, and fail-closed Info.plist invariants.
       - name: Build app
         working-directory: app
         run: ./build.sh
+      - name: Stage ad-hoc local candidate
+        working-directory: app
+        run: HYPERVIBE_SIGN_MODE=adhoc ./create_app_bundle.sh
+      - name: Verify staged candidate
+        working-directory: app
+        run: |
+          codesign --verify --deep --strict --verbose=2 .build/HyperVibe-Dev.app
+          test "$(plutil -extract CFBundleIdentifier raw -o - .build/HyperVibe-Dev.app/Contents/Info.plist)" = "org.tevriq.siriremoteforge"
+          test "$(plutil -extract HyperVibeCredentialBackend raw -o - .build/HyperVibe-Dev.app/Contents/Info.plist)" = "local-json"
+          ! plutil -extract SUFeedURL raw -o - .build/HyperVibe-Dev.app/Contents/Info.plist >/dev/null 2>&1
+          ! plutil -extract SUPublicEDKey raw -o - .build/HyperVibe-Dev.app/Contents/Info.plist >/dev/null 2>&1

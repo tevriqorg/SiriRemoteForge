@@ -37,6 +37,22 @@ enum VoiceRemoteProbePolicy {
         guard producerWasActive, baseline > preRollFrames else { return baseline }
         return baseline - preRollFrames
     }
+
+    static func shouldPreferBuiltInForColdRemote(
+        remoteWasActiveAtStart: Bool,
+        builtInFrameCount: Int
+    ) -> Bool {
+        !remoteWasActiveAtStart && builtInFrameCount > 0
+    }
+
+    /// The historical remote writer reset its monotonic frame counter to zero every time the
+    /// privileged router restarted. A reader that captured the previous non-zero baseline would
+    /// then wait forever for current > oldBaseline, even while fresh audio was already arriving.
+    /// A backwards counter is unambiguous restart evidence, so rebase this capture to the new
+    /// producer epoch. Newer writers preserve monotonicity and never take this compatibility path.
+    static func rebasedBaselineAfterProducerRestart(baseline: UInt64, current: UInt64) -> UInt64 {
+        current < baseline ? 0 : baseline
+    }
 }
 
 /// All mutable state is confined to `queue`; public methods only enqueue work or consume the
@@ -54,6 +70,10 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
     private let onMinimumDurationReached: () -> Void
     private let onMaximumDuration: () -> Void
     private let onFirstAudioChunk: () -> Void
+    private let retainPCM: Bool
+    private let streamChunks: Bool
+    private let onPCMChunk: (Data) -> Void
+    private let preserveBeginningWhenRemoteCold: Bool
 
     private var timer: DispatchSourceTimer?
     private var startedAtNanoseconds: UInt64 = 0
@@ -94,22 +114,33 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
          maxDuration: TimeInterval,
          onMinimumDurationReached: @escaping () -> Void,
          onMaximumDuration: @escaping () -> Void,
-         onFirstAudioChunk: @escaping () -> Void = {}) {
+         onFirstAudioChunk: @escaping () -> Void = {},
+         retainPCM: Bool = true,
+         streamChunks: Bool = true,
+         preserveBeginningWhenRemoteCold: Bool = false,
+         onPCMChunk: @escaping (Data) -> Void = { _ in }) {
         self.minimumDuration = max(0, minimumDuration)
         self.maxDuration = max(1, maxDuration)
         self.onMinimumDurationReached = onMinimumDurationReached
         self.onMaximumDuration = onMaximumDuration
         self.onFirstAudioChunk = onFirstAudioChunk
+        self.retainPCM = retainPCM
+        self.streamChunks = streamChunks
+        self.preserveBeginningWhenRemoteCold = preserveBeginningWhenRemoteCold
+        self.onPCMChunk = onPCMChunk
         var localContinuation: AsyncStream<Data>.Continuation!
-        // At the 120 s hard limit this is still only ~5.8 MB of PCM. Unbounded buffering avoids
-        // dropping the beginning of an utterance if TLS/WebSocket setup is unusually slow.
-        chunks = AsyncStream<Data>(bufferingPolicy: .unbounded) {
+        // Native Voice consumes the stream and retains final PCM. Corpus explicitly disables both
+        // paths and uses onPCMChunk to journal audio to disk, so a long thinking hold cannot grow
+        // memory linearly with its duration.
+        let bufferingPolicy: AsyncStream<Data>.Continuation.BufferingPolicy =
+            streamChunks ? .unbounded : .bufferingNewest(1)
+        chunks = AsyncStream<Data>(bufferingPolicy: bufferingPolicy) {
             localContinuation = $0
         }
         continuation = localContinuation
         builtinProbe.reserveCapacity(6_000)
         remoteProbe.reserveCapacity(15_000)
-        capturedPCM.reserveCapacity(65_536)
+        if retainPCM { capturedPCM.reserveCapacity(65_536) }
     }
 
     func start() {
@@ -129,6 +160,13 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
                 continuation.resume(returning: self.stopOnQueue())
             }
         }
+    }
+
+    /// Termination-only drain. Normal callers must use async `stop()`; AppDelegate invokes this
+    /// from the main thread while the process is shutting down so queued PCM is not abandoned before
+    /// the asynchronous corpus writer gets a chance to run.
+    func stopBlockingForTermination() -> VoiceCapturedAudio {
+        queue.sync { stopOnQueue() }
     }
 
     func excludeAcousticFeedback(for duration: TimeInterval) {
@@ -198,9 +236,24 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
             }
 
             if remoteWasLive && remoteAdvancedFrames >= 960 {
-                select(.remote)
+                // Prefer built-in only when it actually supplied samples to preserve the utterance
+                // beginning. If it stayed empty, keep the late-starting remote instead of locking
+                // the whole capture to silence.
+                if preserveBeginningWhenRemoteCold,
+                   VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
+                    remoteWasActiveAtStart: remoteWasActiveAtStart,
+                    builtInFrameCount: builtinProbe.count
+                   ) {
+                    select(.builtIn)
+                } else {
+                    select(.remote)
+                }
             } else if now - startedAtNanoseconds >= probeNanoseconds {
-                select(.builtIn)
+                // Do not lock an empty built-in ring. Keep sampling until a source has real frames,
+                // or until stopOnQueue chooses the best available probe at release.
+                if !preserveBeginningWhenRemoteCold || !builtinProbe.isEmpty {
+                    select(.builtIn)
+                }
             }
             return
         }
@@ -223,6 +276,14 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
         guard srm_remote_audio_state(&current, &active) == 0, active != 0 else { return 0 }
 
         if !remoteWasLive {
+            let rebased = VoiceRemoteProbePolicy.rebasedBaselineAfterProducerRestart(
+                baseline: remoteBaseline, current: current
+            )
+            if rebased != remoteBaseline {
+                rmDebug("🎙 remote ring counter restarted \(remoteBaseline)→\(current); rebasing capture")
+                remoteBaseline = rebased
+                remoteCursor = rebased
+            }
             guard current > remoteBaseline else { return 0 }
             remoteWasLive = true
             remoteAdvancedFrames = current - remoteBaseline
@@ -277,7 +338,8 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
         // Conversion still advances the decimator across excluded frames, avoiding a stale odd
         // sample at the first real speech packet after the cue.
         guard !excluded else { return }
-        capturedPCM.append(chunk)
+        if retainPCM { capturedPCM.append(chunk) }
+        onPCMChunk(chunk)
         capturedFrames += chunk.count / MemoryLayout<Int16>.size
         if !announcedFirstChunk {
             announcedFirstChunk = true
@@ -292,7 +354,7 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
                 sumSquares += value * value
             }
         }
-        continuation.yield(chunk)
+        if streamChunks { continuation.yield(chunk) }
     }
 
     private func announceMinimumDurationIfNeeded() {
@@ -313,7 +375,13 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
             timer?.cancel()
             timer = nil
             if source == nil {
-                select(remoteWasLive && remoteAdvancedFrames >= 480 ? .remote : .builtIn)
+                let remoteHasUsableAudio = remoteWasLive && remoteAdvancedFrames >= 480
+                let preferBuiltIn = preserveBeginningWhenRemoteCold
+                    && VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
+                        remoteWasActiveAtStart: remoteWasActiveAtStart,
+                        builtInFrameCount: builtinProbe.count
+                    )
+                select(remoteHasUsableAudio && !preferBuiltIn ? .remote : .builtIn)
             }
             continuation.finish()
         }
