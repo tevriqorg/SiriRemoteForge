@@ -834,8 +834,17 @@ enum VoiceInputSelfTest {
                                                   producerWasActive: false) == 90_000
                && VoiceRemoteProbePolicy.firstCursor(baseline: 90_000,
                                                      producerWasActive: true) == 75_600
-               && VoiceRemoteProbePolicy.maximumWaitNanoseconds == 650_000_000,
-               "new remote producers cannot leak stale pre-roll while live producers retain it")
+               && VoiceRemoteProbePolicy.maximumWaitNanoseconds == 650_000_000
+               && VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
+                    remoteWasActiveAtStart: false, builtInFrameCount: 1
+                  )
+               && !VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
+                    remoteWasActiveAtStart: false, builtInFrameCount: 0
+                  )
+               && !VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
+                    remoteWasActiveAtStart: true, builtInFrameCount: 1
+                  ),
+               "cold remote preserves real built-in audio but never locks an empty fallback")
 
         let appendProbe = Data([0, 1, 2, 3, 254, 255])
         let appendEnvelope = VoiceRealtimeTranscriptionSession.audioAppendMessage(appendProbe)

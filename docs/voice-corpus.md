@@ -41,12 +41,12 @@ Directory permissions are 0700. Sample files are 0600.
 
 ### audio.wav
 
-Mono PCM16 produced by the existing `VoiceAudioCaptureSession`. When the Siri Remote producer was
-already active at the physical press edge, Corpus may select the remote ring. If that producer is
-cold and begins only after the press, Corpus deliberately keeps the built-in microphone probe that
-covered the utterance beginning rather than switching late and risking clipped first words. The
-chosen source is always recorded in `capture.json`. Native Voice keeps its separate remote-first
-policy.
+Mono PCM16 produced by the existing `VoiceAudioCaptureSession`. When the Siri Remote producer is
+already active at the physical press edge, Corpus may select the remote ring. If it starts cold,
+Corpus prefers the built-in probe only when that probe actually contains samples, preserving the
+utterance beginning. If the built-in ring is still empty, capture keeps probing for fresh remote
+frames instead of locking the attempt to silence. The chosen source is recorded in `capture.json`.
+Native Voice keeps its separate remote-first policy.
 
 Corpus does **not** retain the full utterance PCM in memory. Capture/state ownership is established
 on the physical press edge, while sample-directory creation and the initial Accessibility probe are
@@ -57,11 +57,13 @@ surfaced in Settings. This keeps long thinking/silence holds bounded in App memo
 growing roughly 48 KB/s at 24 kHz mono PCM16. Native Voice keeps its existing in-memory/AsyncStream
 behavior and is unaffected.
 
-`capture.json` records both generated and actually persisted audio frames:
+`capture.json` records generated and actually persisted audio frames:
 - `frame_count`: frames produced by the capture session;
 - `audio_stored_frame_count`: frames written to the WAV spool;
 - `audio_storage_status`: `complete` only when the writer had no error and the two frame counts
-  match, otherwise `incomplete`.
+  match, otherwise `incomplete`;
+- `audio_capture_status`: `captured` when at least one frame was produced, otherwise `no_frames`.
+  This distinguishes a correctly stored empty WAV from an attempt that actually captured audio.
 
 A forced kill or power loss can still leave the current WAV header unfinished; crash-level audio
 journaling is outside the current in-process durability guarantee.
@@ -73,9 +75,8 @@ Immutable physical/capture facts:
 - attempt id;
 - start/end timestamps;
 - resolved action and shortcut;
-- frontmost application metadata;
-- audio source, sample rate, generated/stored frame counts, storage status, duration and
-  mean-square level.
+- audio source, capture status, sample rate, generated/stored frame counts, storage status, duration
+  and mean-square level.
 
 The presence or absence of speech is not decided here.
 

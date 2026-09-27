@@ -186,8 +186,16 @@ final class VoiceCorpusRecorder {
         var accessibilityCaptured = false
         var frontmostAppChangedDuringObservation = false
         var focusTargetChangedDuringObservation = false
-        var secureInputSeenDuringObservation = false
         var axProbeInFlight = false
+        var secureInputSeenDuringObservation = false
+        // asynchronously, so the first observed AX delta is only a partial utterance. Keep watching
+        // until the focused editor stops changing, then finalize with the full string.
+        var lastObservedText: String?
+        var lastTextChangeAt: Date?
+        // Physical hold duration. Text observation stays open for at most this long plus a short tail
+        // window, so a very short press cannot leave a long-running watcher that attaches late text to
+        // a near-empty (zero-frame) audio sample.
+        var holdDuration: TimeInterval = 0
 
         init(id: UUID, startedAt: Date, directoryURL: URL,
              actionKey: String, actionKind: String, shortcutKeys: String,
@@ -222,6 +230,7 @@ final class VoiceCorpusRecorder {
         let audioFile: String
         let audioSource: String
         let audioStorageStatus: String
+        let audioCaptureStatus: String
         let audioStoredFrameCount: Int
         let sampleRate: Int
         let frameCount: Int
@@ -240,6 +249,7 @@ final class VoiceCorpusRecorder {
             case audioFile = "audio_file"
             case audioSource = "audio_source"
             case audioStorageStatus = "audio_storage_status"
+            case audioCaptureStatus = "audio_capture_status"
             case audioStoredFrameCount = "audio_stored_frame_count"
             case sampleRate = "sample_rate"
             case frameCount = "frame_count"
@@ -302,10 +312,23 @@ final class VoiceCorpusRecorder {
     private let ioQueue = DispatchQueue(label: "com.hypervibe.voice-corpus", qos: .utility)
     private let onStorageStatus: (String?) -> Void
     private var active: Session?
-    private var pendingObservation: Session?
     private var clipboardWatchGeneration = 0
+    private var pendingObservation: Session?
     private let textObservationInterval: TimeInterval = 0.1
-    private let textObservationAttempts = 50
+    // Text observation closes on a tail window after the physical hold ends (or the hard attempt
+    // cap), not on editor quiescence. A streaming IME (e.g. WeType voice input) keeps mutating the
+    // focused editor across multiple voice bursts, so waiting for it to go quiet never finalizes a
+    // busy session. During the window we keep the longest editor value seen, so the completed
+    // utterance wins over any intermediate partial diff.
+    private let textStableIntervalUnused: TimeInterval = 2.5
+    // After the physical hold ends, give the IME a tail window to finish emitting characters before
+    // text observation closes. WeType commonly appends the final characters after key release, so
+    // this must be long enough to capture the completed utterance.
+    private let textTailWindow: TimeInterval = 4.0
+    // Hard safety cap on total text-observation duration (attempts * interval).
+    // Hard safety cap on total text-observation duration (attempts * interval). The real stop
+    // condition is the time window (holdDuration + textTailWindow); this only bounds runaway loops.
+    private let textObservationAttempts = 400
 
     init(rootURL: URL? = nil, fileManager: FileManager = .default,
          onStorageStatus: @escaping (String?) -> Void = { _ in }) {
@@ -424,15 +447,12 @@ final class VoiceCorpusRecorder {
         }
         clipboardWatchGeneration &+= 1
     }
-
-    /// End the matching external voice sample. Audio persistence happens off the main thread.
-    /// Clipboard observation remains deliberately best-effort: it records only a change made after
-    /// this utterance began, never the pre-existing clipboard contents.
     func end(actionKey: String) {
         guard let session = active, session.actionKey == actionKey else { return }
         active = nil
         let endedAt = Date()
         session.endedAt = endedAt
+        session.holdDuration = max(0, endedAt.timeIntervalSince(session.startedAt))
         let watchGeneration = clipboardWatchGeneration
         pendingObservation = session
         watchTextObservations(for: session, generation: watchGeneration, attempt: 0)
@@ -512,6 +532,7 @@ final class VoiceCorpusRecorder {
                 audioFile: "audio.wav",
                 audioSource: audio.source.rawValue,
                 audioStorageStatus: storage.status,
+                audioCaptureStatus: audio.frameCount > 0 ? "captured" : "no_frames",
                 audioStoredFrameCount: storage.storedFrameCount,
                 sampleRate: audio.sampleRate,
                 frameCount: audio.frameCount,
@@ -588,9 +609,8 @@ final class VoiceCorpusRecorder {
         // AX is sampled only a handful of times, and the cross-process work stays off the main
         // queue. This matters when attempts are close together: a hung/custom editor must not delay
         // the next physical F10 press while an older sample is still waiting for text.
-        if !session.accessibilityCaptured,
-           !session.axProbeInFlight,
-           [2, 5, 10, 20, 35, 50].contains(attempt),
+        if !session.axProbeInFlight,
+           attempt % 3 == 0,
            let target = session.textTarget,
            let before = target.valueBeforeInsertion,
            NSWorkspace.shared.frontmostApplication?.processIdentifier == target.pid {
@@ -616,15 +636,16 @@ final class VoiceCorpusRecorder {
             }
         }
 
-        // The pasteboard is global. Preserve it as Raw evidence, but never let it alone establish
+        // The pasteboard is global. Preserve it as Raw observation, but never let it alone establish
         // an audio/text pair. Only a target-verified AX delta makes text_status observationally true.
-        if session.clipboardCaptured && session.accessibilityCaptured {
-            finalizeObservation(session, textStatus: "observed")
-            if pendingObservation === session { pendingObservation = nil }
-            return
-        }
+        // Text observation closes on the tail window (or the hard attempt cap), not on editor
+        // quiescence: a streaming IME (e.g. WeType) keeps mutating the focused editor across
+        // multiple voice bursts, so waiting for it to go quiet would never finalize a busy session.
+        // During the window we keep the longest editor value seen, so the completed utterance wins.
 
-        guard attempt < textObservationAttempts else {
+        let elapsed = Date().timeIntervalSince(session.startedAt)
+        let windowLimit = session.holdDuration + textTailWindow
+        guard attempt < textObservationAttempts, elapsed < windowLimit else {
             if session.axProbeInFlight {
                 DispatchQueue.main.asyncAfter(deadline: .now() + textObservationInterval) { [weak self] in
                     self?.watchTextObservations(
@@ -633,6 +654,8 @@ final class VoiceCorpusRecorder {
                 }
                 return
             }
+            // Window exhausted: take whatever text was last seen (stable or still streaming) rather
+            // than discarding it, so a long utterance that has not yet quieted is not lost.
             let observed = session.accessibilityCaptured
             finalizeObservation(session, textStatus: observed ? "observed" : "not_observed")
             if pendingObservation === session { pendingObservation = nil }
@@ -655,8 +678,10 @@ final class VoiceCorpusRecorder {
         generation: Int
     ) {
         guard generation == clipboardWatchGeneration,
-              pendingObservation === session,
-              !session.accessibilityCaptured else { return }
+              pendingObservation === session else { return }
+        // NOTE: intentionally NOT guarding on !session.accessibilityCaptured here. A streaming IME
+        // (e.g. WeType voice input) keeps appending characters after the first diff, so every probe
+        // may carry a longer final string. We refresh the captured text while it is still growing.
 
         if current.isSecure {
             session.secureInputSeenDuringObservation = true
@@ -681,10 +706,18 @@ final class VoiceCorpusRecorder {
             pendingObservation = nil
             return
         }
-
         guard let after = current.valueBeforeInsertion,
               let delta = Self.changedText(before: before, after: after) else { return }
+        // Keep the longest before-to-current AX delta observed during the capture window.
+        // Streaming IMEs may publish partial text first and append later; do not finalize here.
+        guard after.count > (session.lastObservedText?.count ?? 0) else {
+            session.lastTextChangeAt = Date()
+            return
+        }
         session.accessibilityCaptured = true
+        session.lastObservedText = after
+        session.lastTextChangeAt = Date()
+
         let observation = IMEObservation(
             version: 1,
             capturedAt: Date(),
@@ -697,11 +730,11 @@ final class VoiceCorpusRecorder {
         ioQueue.async { [weak self] in
             self?.persistIME(observation, filename: "ime.accessibility.json", for: session)
         }
-
-        if session.clipboardCaptured {
-            finalizeObservation(session, textStatus: "observed")
-            pendingObservation = nil
-        }
+        // Do NOT finalize yet: a streaming IME (e.g. WeType voice input) appends characters
+        // asynchronously, so the first observed AX delta is only a partial utterance. Stability
+        // (or the tail window) decides when this sample's text is complete. The clipboard, if seen,
+        // stays preserved as Raw evidence regardless of when observation closes.
+        rmDebug("🗂 corpus: ax captured partial text, waiting for IME stability")
     }
 
     private static func changedText(before: String, after: String)
@@ -744,7 +777,10 @@ final class VoiceCorpusRecorder {
             frontmostAppChanged: session.frontmostAppChangedDuringObservation,
             focusTargetChanged: session.focusTargetChangedDuringObservation,
             secureInputSeen: session.secureInputSeenDuringObservation,
-            observationWindowLimitSeconds: Double(textObservationAttempts) * textObservationInterval,
+            // Text observation stays open for the physical hold duration plus a short tail window,
+            // so a very short press cannot leave a long watcher that binds late IME text to an
+            // otherwise empty (zero-frame) audio sample.
+            observationWindowLimitSeconds: session.holdDuration + textTailWindow,
             speechStatus: "not_analyzed",
             imeOutcome: "not_inferred",
             networkStatus: "not_measured"

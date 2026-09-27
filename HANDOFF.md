@@ -159,13 +159,14 @@ Raw policy:
 - missing labels are preferred to wrong audio/text pairing;
 - turning Corpus OFF during an already-active attempt does **not** truncate it: that physical
   press/release sample finishes normally, while the next attempt is not recorded;
-- if the Siri Remote audio producer was cold at physical press, Corpus keeps the built-in-mic probe
-  that covered the beginning instead of switching late to remote and risking clipped first words.
-  `audio_source=builtIn` records that fact; Native Voice keeps its own historic remote-first policy;
-- normal App termination synchronously drains pending Corpus writes where possible;
+ - if the Siri Remote audio producer is cold at physical press, Corpus keeps the built-in-mic probe
+  when it actually contains frames, preserving the utterance beginning. If that probe is empty, it
+  keeps sampling for fresh remote frames rather than locking the sample to silence;
+  `audio_source` records the selected source;
+- `capture.json` records generated vs stored frame counts and `audio_storage_status`; the separate
+  `audio_capture_status` is `captured` or `no_frames`, so a valid empty WAV is not mistaken for audio.
 - Corpus audio is streamed directly to its WAV spool instead of retaining the whole utterance PCM or
-  an unconsumed AsyncStream. `capture.json` records generated vs stored frame counts and
-  `audio_storage_status`; long thinking holds therefore grow disk usage rather than linearly
+  an unconsumed AsyncStream. Long thinking holds therefore grow disk usage rather than linearly
   growing App memory.
 
 Nightly ASR/VAD/alignment belongs to a later **Analysis** layer and must not overwrite Raw files.

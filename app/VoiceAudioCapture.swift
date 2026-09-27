@@ -37,6 +37,13 @@ enum VoiceRemoteProbePolicy {
         guard producerWasActive, baseline > preRollFrames else { return baseline }
         return baseline - preRollFrames
     }
+
+    static func shouldPreferBuiltInForColdRemote(
+        remoteWasActiveAtStart: Bool,
+        builtInFrameCount: Int
+    ) -> Bool {
+        !remoteWasActiveAtStart && builtInFrameCount > 0
+    }
 }
 
 /// All mutable state is confined to `queue`; public methods only enqueue work or consume the
@@ -220,17 +227,24 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
             }
 
             if remoteWasLive && remoteAdvancedFrames >= 960 {
-                // Corpus values a complete utterance over microphone provenance. If the remote
-                // producer was cold at the physical press edge, its ring has no trustworthy
-                // pre-roll for the sentence beginning; keep the built-in probe that covered that
-                // edge instead. Native Voice keeps the historic remote-first behavior.
-                if preserveBeginningWhenRemoteCold && !remoteWasActiveAtStart {
+                // Prefer built-in only when it actually supplied samples to preserve the utterance
+                // beginning. If it stayed empty, keep the late-starting remote instead of locking
+                // the whole capture to silence.
+                if preserveBeginningWhenRemoteCold,
+                   VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
+                    remoteWasActiveAtStart: remoteWasActiveAtStart,
+                    builtInFrameCount: builtinProbe.count
+                   ) {
                     select(.builtIn)
                 } else {
                     select(.remote)
                 }
             } else if now - startedAtNanoseconds >= probeNanoseconds {
-                select(.builtIn)
+                // Do not lock an empty built-in ring. Keep sampling until a source has real frames,
+                // or until stopOnQueue chooses the best available probe at release.
+                if !preserveBeginningWhenRemoteCold || !builtinProbe.isEmpty {
+                    select(.builtIn)
+                }
             }
             return
         }
@@ -344,7 +358,13 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
             timer?.cancel()
             timer = nil
             if source == nil {
-                select(remoteWasLive && remoteAdvancedFrames >= 480 ? .remote : .builtIn)
+                let remoteHasUsableAudio = remoteWasLive && remoteAdvancedFrames >= 480
+                let preferBuiltIn = preserveBeginningWhenRemoteCold
+                    && VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
+                        remoteWasActiveAtStart: remoteWasActiveAtStart,
+                        builtInFrameCount: builtinProbe.count
+                    )
+                select(remoteHasUsableAudio && !preferBuiltIn ? .remote : .builtIn)
             }
             continuation.finish()
         }
