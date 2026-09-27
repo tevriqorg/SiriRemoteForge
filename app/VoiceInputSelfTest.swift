@@ -843,8 +843,14 @@ enum VoiceInputSelfTest {
                   )
                && !VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
                     remoteWasActiveAtStart: true, builtInFrameCount: 1
-                  ),
-               "cold remote preserves real built-in audio but never locks an empty fallback")
+                  )
+               && VoiceRemoteProbePolicy.rebasedBaselineAfterProducerRestart(
+                    baseline: 90_000, current: 1_200
+                  ) == 0
+               && VoiceRemoteProbePolicy.rebasedBaselineAfterProducerRestart(
+                    baseline: 90_000, current: 91_200
+                  ) == 90_000,
+               "cold remote preserves real built-in audio and survives a router counter restart")
 
         let appendProbe = Data([0, 1, 2, 3, 254, 255])
         let appendEnvelope = VoiceRealtimeTranscriptionSession.audioAppendMessage(appendProbe)
