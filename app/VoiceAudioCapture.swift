@@ -44,6 +44,15 @@ enum VoiceRemoteProbePolicy {
     ) -> Bool {
         !remoteWasActiveAtStart && builtInFrameCount > 0
     }
+
+    /// The historical remote writer reset its monotonic frame counter to zero every time the
+    /// privileged router restarted. A reader that captured the previous non-zero baseline would
+    /// then wait forever for current > oldBaseline, even while fresh audio was already arriving.
+    /// A backwards counter is unambiguous restart evidence, so rebase this capture to the new
+    /// producer epoch. Newer writers preserve monotonicity and never take this compatibility path.
+    static func rebasedBaselineAfterProducerRestart(baseline: UInt64, current: UInt64) -> UInt64 {
+        current < baseline ? 0 : baseline
+    }
 }
 
 /// All mutable state is confined to `queue`; public methods only enqueue work or consume the
@@ -267,6 +276,14 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
         guard srm_remote_audio_state(&current, &active) == 0, active != 0 else { return 0 }
 
         if !remoteWasLive {
+            let rebased = VoiceRemoteProbePolicy.rebasedBaselineAfterProducerRestart(
+                baseline: remoteBaseline, current: current
+            )
+            if rebased != remoteBaseline {
+                rmDebug("🎙 remote ring counter restarted \(remoteBaseline)→\(current); rebasing capture")
+                remoteBaseline = rebased
+                remoteCursor = rebased
+            }
             guard current > remoteBaseline else { return 0 }
             remoteWasLive = true
             remoteAdvancedFrames = current - remoteBaseline
