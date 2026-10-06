@@ -12,14 +12,22 @@ import IOKit.hid
 /// Append diagnostic line to /tmp/hypervibe.log (unified-log redacts NSLog under hardened runtime).
 func rmDebug(_ msg: String) {
     let line = "\(Date()) \(msg)\n"
-    if let data = line.data(using: .utf8) {
-        let path = "/tmp/hypervibe.log"
-        if let fh = FileHandle(forWritingAtPath: path) {
-            fh.seekToEndOfFile()
-            fh.write(data)
-            try? fh.close()
-        } else {
-            try? data.write(to: URL(fileURLWithPath: path))
+    guard let data = line.data(using: .utf8) else { return }
+    let path = "/tmp/hypervibe.log"
+    // O_APPEND makes each write atomic with respect to other writers, and the descriptor is opened
+    // and closed per call so the audio and main threads can log concurrently without interleaving
+    // or overwriting each other's lines. `FileHandle.seekToEndOfFile()` + `write` is not safe: two
+    // threads can seek to the same offset and the later write wins.
+    let fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+    guard fd >= 0 else { return }
+    defer { close(fd) }
+    data.withUnsafeBytes { buffer in
+        guard let base = buffer.baseAddress else { return }
+        var written = 0
+        while written < buffer.count {
+            let n = write(fd, base + written, buffer.count - written)
+            if n <= 0 { return }
+            written += n
         }
     }
 }

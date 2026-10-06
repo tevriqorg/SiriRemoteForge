@@ -99,7 +99,7 @@ final class BuiltinMicFeeder {
         if remoteStatus == NOTIFY_STATUS_OK {
             remoteDemandToken = remoteToken
         } else {
-            print("🎙️ notify_register_check failed (\(remoteStatus)) — native remote mic demand unavailable")
+            rmDebug("🎙️ notify_register_check failed (\(remoteStatus)) — native remote mic demand unavailable")
         }
 
         var token: Int32 = 0
@@ -108,7 +108,7 @@ final class BuiltinMicFeeder {
             self?.handleDemand()
         }
         guard status == 0 else {   // NOTIFY_STATUS_OK
-            print("🎙️ notify_register_dispatch failed (\(status)) — built-in-mic fallback disabled")
+            rmDebug("🎙️ notify_register_dispatch failed (\(status)) — built-in-mic fallback disabled")
             return
         }
         notifyToken = token
@@ -121,7 +121,16 @@ final class BuiltinMicFeeder {
             // seen. Existing early costs nothing: producerActive=0 means silence per the
             // contract, and no mic is touched until demand arrives.
             if srm_builtin_ring_open() != 0 {
-                print("🎙️ ring open failed: \(String(cString: srm_builtin_ring_last_error()))")
+                rmDebug("🎙️ ring open failed: \(String(cString: srm_builtin_ring_last_error()))")
+            }
+            // Startup ground truth for the fallback path. Without this, a Mac with no built-in
+            // microphone (e.g. Mac mini) only reveals itself as silent zero-frame captures much
+            // later, which reads like a vague "microphone does not work" rather than a missing
+            // device. Report the resolved device once, at boot, on the diagnostic channel.
+            if let mic = Self.resolveBuiltInMic() {
+                rmDebug("🎙️ built-in mic available: \(mic.name) uid=\(mic.uid)")
+            } else {
+                rmDebug("🎙️ no built-in microphone on this Mac — built-in-mic fallback will stay silent; voice still works from the remote's own microphone")
             }
             // Ground truth at startup: an app may already have the device open (the
             // notification only fires on edges, and the last edge predates this process).
@@ -206,7 +215,7 @@ final class BuiltinMicFeeder {
         let ownPID = UInt64(ProcessInfo.processInfo.processIdentifier)
         if active {
             guard notify_set_state(token, ownPID) == NOTIFY_STATUS_OK else {
-                print("🎙️ native remote mic demand state publish failed")
+                rmDebug("🎙️ native remote mic demand state publish failed")
                 return
             }
             notify_post(Self.dictationNotification)
@@ -223,7 +232,7 @@ final class BuiltinMicFeeder {
             return
         }
         guard notify_set_state(token, 0) == NOTIFY_STATUS_OK else {
-            print("🎙️ native remote mic demand release publish failed")
+            rmDebug("🎙️ native remote mic demand release publish failed")
             return
         }
         notify_post(Self.dictationNotification)
@@ -365,7 +374,7 @@ final class BuiltinMicFeeder {
                 self?.queue.async {
                     guard let self = self else { return }
                     guard granted else {
-                        print("🎙️ mic permission denied — built-in-mic fallback stays silent")
+                        rmDebug("🎙️ mic permission denied — built-in-mic fallback stays silent")
                         return
                     }
                     if self.captureWanted && !self.capturing { self.beginCapture() }
@@ -374,7 +383,7 @@ final class BuiltinMicFeeder {
         default:
             // Denied/restricted: no-op by design — the virtual device just serves
             // silence when the remote isn't feeding. Never crash over a permission.
-            print("🎙️ mic permission denied — built-in-mic fallback silent (System Settings → Privacy & Security → Microphone)")
+            rmDebug("🎙️ mic permission denied — built-in-mic fallback silent (System Settings → Privacy & Security → Microphone)")
         }
     }
 
@@ -387,7 +396,7 @@ final class BuiltinMicFeeder {
         }
         guard var live = context else { return }
         guard srm_builtin_ring_open() == 0 else {
-            print("🎙️ ring open failed: \(String(cString: srm_builtin_ring_last_error()))")
+            rmDebug("🎙️ ring open failed: \(String(cString: srm_builtin_ring_last_error()))")
             return
         }
         var status = AudioOutputUnitStart(live.unit)
@@ -399,13 +408,13 @@ final class BuiltinMicFeeder {
             live = rebuilt
             status = AudioOutputUnitStart(rebuilt.unit)
             guard status == noErr else {
-                print("🎙️ AudioOutputUnitStart failed (\(status)) — built-in-mic fallback unavailable")
+                rmDebug("🎙️ AudioOutputUnitStart failed (\(status)) — built-in-mic fallback unavailable")
                 return
             }
         }
         srm_builtin_ring_set_active(1)
         capturing = true
-        print("🎙️ built-in mic → /SiriRemoteMicBuiltin (\(live.deviceName), uid=\(live.deviceUID), \(Int(live.deviceRate)) Hz)")
+        rmDebug("🎙️ built-in mic → /SiriRemoteMicBuiltin (\(live.deviceName), uid=\(live.deviceUID), \(Int(live.deviceRate)) Hz)")
     }
 
     private func stopCapture() {
@@ -418,7 +427,7 @@ final class BuiltinMicFeeder {
         // The AU stays built (stopped = mic not recording, no TCC indicator) and the shm
         // stays mapped: recreating either per demand cycle is pointless churn, and a
         // recreated ring would reset writeIndex under an attached reader.
-        print("🎙️ built-in mic capture stopped (device idle)")
+        rmDebug("🎙️ built-in mic capture stopped (device idle)")
     }
 
     // MARK: - AUHAL setup (feeder queue)
@@ -460,7 +469,7 @@ final class BuiltinMicFeeder {
 
     private func buildContext() -> CaptureContext? {
         guard let mic = Self.resolveBuiltInMic() else {
-            print("🎙️ no built-in microphone found — built-in-mic fallback unavailable")
+            rmDebug("🎙️ no built-in microphone found — built-in-mic fallback unavailable")
             return nil
         }
 
@@ -475,7 +484,7 @@ final class BuiltinMicFeeder {
               let unit = maybeUnit else { return nil }
 
         func fail(_ what: String, _ status: OSStatus) -> CaptureContext? {
-            print("🎙️ AUHAL setup failed at \(what) (\(status)) — built-in-mic fallback unavailable")
+            rmDebug("🎙️ AUHAL setup failed at \(what) (\(status)) — built-in-mic fallback unavailable")
             AudioComponentInstanceDispose(unit)
             return nil
         }
@@ -557,7 +566,7 @@ final class BuiltinMicFeeder {
                 mElement: kAudioObjectPropertyElementMain)
             let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
                 guard let self = self, self.context != nil else { return }
-                print("🎙️ built-in mic device changed — rebuilding capture")
+                rmDebug("🎙️ built-in mic device changed — rebuilding capture")
                 self.stopCapture()
                 self.teardownContext()
                 self.queue.asyncAfter(deadline: .now() + 0.3) { [weak self] in
