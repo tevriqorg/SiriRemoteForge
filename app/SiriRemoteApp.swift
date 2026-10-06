@@ -2224,10 +2224,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Permissions
 
     private func startPermissionHealthMonitoring() {
-        let initial = SystemReadiness.snapshot()
-        previousAccessibilityGranted = initial.accessibilityGranted
-        previousInputMonitoringGranted = initial.inputMonitoringGranted
-        menuBarManager?.updatePermissionStatus(ready: initial.corePermissionsGranted)
+        let initial = SystemReadiness.corePermissionState()
+        previousAccessibilityGranted = initial.accessibility
+        previousInputMonitoringGranted = initial.inputMonitoring
+        menuBarManager?.updatePermissionStatus(ready: initial.granted)
 
         permissionHealthTimer = Timer.scheduledTimer(
             withTimeInterval: 1.0,
@@ -2251,25 +2251,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshPermissionHealth() {
-        let current = SystemReadiness.snapshot()
-        menuBarManager?.updatePermissionStatus(ready: current.corePermissionsGranted)
+        let current = SystemReadiness.corePermissionState()
+        menuBarManager?.updatePermissionStatus(ready: current.granted)
 
-        if previousInputMonitoringGranted == false, current.inputMonitoringGranted {
+        if previousInputMonitoringGranted == false, current.inputMonitoring {
             // A manager opened while Input Monitoring was denied stays unusable. Recreate it as
             // soon as the user returns from System Settings — no app restart required.
             remoteDetector?.stopDetection()
             remoteDetector?.startDetection()
             rmDebug("🔐 Input Monitoring granted — HID detection reattached")
         }
-        if previousAccessibilityGranted == false, current.accessibilityGranted {
+        if previousAccessibilityGranted == false, current.accessibility {
             // CGEvent taps created before Accessibility was granted are nil. Rebuild only this tap.
             mediaKeyInterceptor?.stop()
             mediaKeyInterceptor?.start()
             rmDebug("🔐 Accessibility granted — media event tap reattached")
         }
 
-        previousAccessibilityGranted = current.accessibilityGranted
-        previousInputMonitoringGranted = current.inputMonitoringGranted
+        previousAccessibilityGranted = current.accessibility
+        previousInputMonitoringGranted = current.inputMonitoring
     }
 }
 
