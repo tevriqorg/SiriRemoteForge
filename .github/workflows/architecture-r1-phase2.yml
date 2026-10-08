@@ -19,444 +19,115 @@ jobs:
           ref: chatgpt/architecture-r1-20261008
           fetch-depth: 0
 
-      - name: Extract pure remote input state into RemoteInputCore
+      - name: Wire App to RemoteInputCore
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          pkg = Path('SiriRemoteCore/Package.swift')
-          text = pkg.read_text()
-          text = text.replace(
-              'products: [.library(name: "SiriRemoteCore", type: .static, targets: ["SiriRemoteCore"])],',
-              'products: [\n        .library(name: "SiriRemoteCore", type: .static, targets: ["SiriRemoteCore"]),\n        .library(name: "RemoteInputCore", type: .static, targets: ["RemoteInputCore"]),\n    ],'
+          p = Path('app/RemoteInputHandler.swift')
+          s = p.read_text()
+          if 'import RemoteInputCore' not in s:
+              s = s.replace('import SiriRemoteCore\n', 'import SiriRemoteCore\nimport RemoteInputCore\n', 1)
+
+          hold_pattern = re.compile(
+              r'    /// One armed hold stage:.*?    private var armedHolds: \[String: ArmedHold\] = \[:\]\n',
+              re.S,
           )
-          text = text.replace(
-              '        .target(name: "SiriRemoteCore"),\n        .testTarget(name: "SiriRemoteCoreTests", dependencies: ["SiriRemoteCore"]),',
-              '        .target(name: "SiriRemoteCore"),\n        .target(name: "RemoteInputCore"),\n        .testTarget(name: "SiriRemoteCoreTests", dependencies: ["SiriRemoteCore"]),\n        .testTarget(name: "RemoteInputCoreTests", dependencies: ["RemoteInputCore"]),'
-          )
-          if 'RemoteInputCore' not in text:
-              raise SystemExit('Package.swift transformation failed')
-          pkg.write_text(text)
-
-          source = Path('SiriRemoteCore/Sources/RemoteInputCore/RemoteInputState.swift')
-          source.parent.mkdir(parents=True, exist_ok=True)
-          source.write_text(r'''import Foundation
-
-public enum NativeDictationPressRoute: Equatable {
-    case native
-    case busyConsumed
-    case external
-    case ordinary
-}
-
-public enum VoiceModeChordRoute: Equatable {
-    case passthrough
-    case consume
-    case cycle
-}
-
-public enum SharedButtonTransition: Equatable {
-    case duplicate
-    case sourceOnly
-    case globalDown
-    case globalUp
-}
-
-/// Pure ownership state for logical buttons shared by several HID interfaces/remotes.
-public struct MultiRemoteButtonState<Source: Hashable, Button: Hashable> {
-    private var heldBySource: [Source: Set<Button>] = [:]
-
-    public init() {}
-
-    public var heldButtons: Set<Button> {
-        heldBySource.values.reduce(into: Set<Button>()) { $0.formUnion($1) }
-    }
-
-    public func isPressed(_ button: Button) -> Bool {
-        heldBySource.values.contains { $0.contains(button) }
-    }
-
-    public mutating func update(source: Source, button: Button,
-                                pressed: Bool) -> SharedButtonTransition {
-        let sourceWasPressed = heldBySource[source]?.contains(button) == true
-        guard sourceWasPressed != pressed else { return .duplicate }
-        let wasGloballyPressed = isPressed(button)
-        if pressed {
-            heldBySource[source, default: []].insert(button)
-        } else {
-            heldBySource[source]?.remove(button)
-            if heldBySource[source]?.isEmpty == true { heldBySource[source] = nil }
-        }
-        let isGloballyPressed = isPressed(button)
-        guard wasGloballyPressed != isGloballyPressed else { return .sourceOnly }
-        return isGloballyPressed ? .globalDown : .globalUp
-    }
-
-    public mutating func removeSource(_ source: Source) -> Set<Button> {
-        guard let removed = heldBySource.removeValue(forKey: source) else { return [] }
-        return Set(removed.filter { !isPressed($0) })
-    }
-
-    public mutating func removeAll() { heldBySource.removeAll() }
-}
-
-/// Pure two-button chord state. Once Mute+Side is recognized it owns both releases.
-public struct VoiceModeChordState {
-    public private(set) var ownsMute = false
-    public private(set) var ownsSide = false
-
-    public init() {}
-
-    public mutating func route(buttonName: String, pressed: Bool,
-                               muteIsDown: Bool, enabled: Bool) -> VoiceModeChordRoute {
-        if buttonName == "siri" {
-            if !pressed, ownsSide {
-                ownsSide = false
-                return .consume
-            }
-            if pressed, enabled, muteIsDown {
-                ownsMute = true
-                ownsSide = true
-                return .cycle
-            }
-        }
-        if buttonName == "mute", !pressed, ownsMute {
-            ownsMute = false
-            return .consume
-        }
-        return .passthrough
-    }
-
-    public mutating func reset() {
-        ownsMute = false
-        ownsSide = false
-    }
-}
-
-public enum RemoteHoldSelection: Equatable {
-    case tap
-    case stage(index: Int)
-    case cancel
-}
-
-public struct RemoteHoldStage: Equatable {
-    public let key: String
-    public let delay: TimeInterval
-    public let ordinal: Int
-
-    public init(key: String, delay: TimeInterval, ordinal: Int) {
-        self.key = key
-        self.delay = delay
-        self.ordinal = ordinal
-    }
-}
-
-/// Immutable snapshot captured on physical press. Config reloads cannot move its thresholds.
-public struct RemoteHoldGesture: Equatable {
-    public let startedAt: TimeInterval
-    public let stages: [RemoteHoldStage]
-    public let cancelAt: TimeInterval?
-
-    public init(startedAt: TimeInterval, stages: [RemoteHoldStage], cancelAt: TimeInterval?) {
-        self.startedAt = startedAt
-        self.stages = stages
-        self.cancelAt = cancelAt
-    }
-
-    public func selection(at now: TimeInterval) -> RemoteHoldSelection {
-        let elapsed = max(0, now - startedAt)
-        if let cancelAt, elapsed >= cancelAt { return .cancel }
-        let reached = stages.reduce(into: 0) { count, stage in
-            if elapsed >= stage.delay { count += 1 }
-        }
-        return reached > 0 ? .stage(index: reached - 1) : .tap
-    }
-}
-
-/// Pure storage/ownership for press-scoped hold gestures. Timers and action dispatch stay in App.
-public struct RemoteHoldState<Button: Hashable> {
-    private var values: [Button: RemoteHoldGesture] = [:]
-
-    public init() {}
-
-    public subscript(button: Button) -> RemoteHoldGesture? {
-        get { values[button] }
-        set { values[button] = newValue }
-    }
-
-    @discardableResult
-    public mutating func removeValue(forKey button: Button) -> RemoteHoldGesture? {
-        values.removeValue(forKey: button)
-    }
-
-    public mutating func removeAll() { values.removeAll() }
-}
-
-/// Count-only multi-tap reducer. Scheduling and action dispatch remain in App.
-public struct RemoteTapRunState<Button: Hashable> {
-    private var counts: [Button: Int] = [:]
-
-    public init() {}
-
-    public subscript(button: Button) -> Int? {
-        get { counts[button] }
-        set { counts[button] = newValue }
-    }
-
-    @discardableResult
-    public mutating func advance(_ button: Button) -> Int {
-        let next = (counts[button] ?? 0) + 1
-        counts[button] = next
-        return next
-    }
-
-    @discardableResult
-    public mutating func removeValue(forKey button: Button) -> Int? {
-        counts.removeValue(forKey: button)
-    }
-
-    public mutating func removeAll() { counts.removeAll() }
-}
-
-public enum RemoteLayerGesture: Equatable {
-    case direct(String)
-    case cycle(String?)
-
-    public var target: String? {
-        switch self {
-        case .direct(let name): return name
-        case .cycle(let name): return name
-        }
-    }
-
-    public var displayID: String { target ?? "BASE" }
-}
-
-/// Pure layer-gesture ownership. Controller push/pop and HUD callbacks stay in App.
-public struct RemoteLayerState<Button: Hashable> {
-    public var button: Button?
-    public var gesture: RemoteLayerGesture?
-    public var used = false
-    public var stickyLayer: String?
-    public var stickyButton: Button?
-
-    public init() {}
-
-    public mutating func engage(button: Button, gesture: RemoteLayerGesture) {
-        self.button = button
-        self.gesture = gesture
-        used = false
-    }
-
-    public mutating func markUsed() {
-        if button != nil { used = true }
-    }
-
-    public mutating func resetMomentary() {
-        button = nil
-        gesture = nil
-        used = false
-    }
-}
-
-/// Pure record of which presses crossed the held-repeat onset. Timer/key side effects stay in App.
-public struct RemoteRepeatEngagementState<Button: Hashable> {
-    private var engaged: Set<Button> = []
-
-    public init() {}
-
-    @discardableResult
-    public mutating func insert(_ button: Button) -> (inserted: Bool, memberAfterInsert: Button) {
-        engaged.insert(button)
-    }
-
-    @discardableResult
-    public mutating func remove(_ button: Button) -> Button? {
-        engaged.remove(button)
-    }
-
-    public func contains(_ button: Button) -> Bool { engaged.contains(button) }
-    public mutating func removeAll() { engaged.removeAll() }
-}
-''')
-
-          tests = Path('SiriRemoteCore/Tests/RemoteInputCoreTests/RemoteInputCoreTests.swift')
-          tests.parent.mkdir(parents=True, exist_ok=True)
-          tests.write_text(r'''import XCTest
-@testable import RemoteInputCore
-
-final class RemoteInputCoreTests: XCTestCase {
-    func testMirroredInterfacesDoNotDuplicateLogicalEdges() {
-        var state = MultiRemoteButtonState<String, String>()
-        XCTAssertEqual(state.update(source: "A", button: "menu", pressed: true), .globalDown)
-        XCTAssertEqual(state.update(source: "A", button: "menu", pressed: true), .duplicate)
-        XCTAssertEqual(state.update(source: "B", button: "menu", pressed: true), .sourceOnly)
-        XCTAssertEqual(state.update(source: "A", button: "menu", pressed: false), .sourceOnly)
-        XCTAssertTrue(state.isPressed("menu"))
-        XCTAssertEqual(state.update(source: "B", button: "menu", pressed: false), .globalUp)
-    }
-
-    func testDisconnectReleasesOnlyButtonsNoOtherRemoteOwns() {
-        var state = MultiRemoteButtonState<String, String>()
-        _ = state.update(source: "A", button: "menu", pressed: true)
-        _ = state.update(source: "A", button: "siri", pressed: true)
-        _ = state.update(source: "B", button: "menu", pressed: true)
-        XCTAssertEqual(state.removeSource("A"), Set(["siri"]))
-        XCTAssertTrue(state.isPressed("menu"))
-    }
-
-    func testVoiceChordOwnsBothReleasesAndReset() {
-        var state = VoiceModeChordState()
-        XCTAssertEqual(state.route(buttonName: "siri", pressed: true,
-                                   muteIsDown: true, enabled: true), .cycle)
-        XCTAssertEqual(state.route(buttonName: "siri", pressed: false,
-                                   muteIsDown: true, enabled: true), .consume)
-        XCTAssertEqual(state.route(buttonName: "mute", pressed: false,
-                                   muteIsDown: false, enabled: true), .consume)
-        state.reset()
-        XCTAssertEqual(state.route(buttonName: "siri", pressed: false,
-                                   muteIsDown: false, enabled: true), .passthrough)
-    }
-
-    func testHoldSelectionUsesCapturedMonotonicBoundaries() {
-        let hold = RemoteHoldGesture(
-            startedAt: 10,
-            stages: [
-                .init(key: "hold", delay: 0.5, ordinal: 1),
-                .init(key: "hold2", delay: 1.0, ordinal: 2),
-            ],
-            cancelAt: 2.0
-        )
-        XCTAssertEqual(hold.selection(at: 10.499), .tap)
-        XCTAssertEqual(hold.selection(at: 10.5), .stage(index: 0))
-        XCTAssertEqual(hold.selection(at: 11.0), .stage(index: 1))
-        XCTAssertEqual(hold.selection(at: 12.0), .cancel)
-    }
-
-    func testTapRunsAdvanceAndResolveIndependently() {
-        var taps = RemoteTapRunState<String>()
-        XCTAssertEqual(taps.advance("menu"), 1)
-        XCTAssertEqual(taps.advance("menu"), 2)
-        XCTAssertEqual(taps.advance("siri"), 1)
-        XCTAssertEqual(taps.removeValue(forKey: "menu"), 2)
-        XCTAssertNil(taps["menu"])
-        XCTAssertEqual(taps["siri"], 1)
-    }
-
-    func testLayerAndRepeatOwnershipArePureState() {
-        var layer = RemoteLayerState<String>()
-        layer.engage(button: "tv", gesture: .direct("L1"))
-        layer.markUsed()
-        XCTAssertEqual(layer.button, "tv")
-        XCTAssertEqual(layer.gesture?.target, "L1")
-        XCTAssertTrue(layer.used)
-        layer.stickyLayer = "L1"
-        layer.stickyButton = "tv"
-        layer.resetMomentary()
-        XCTAssertNil(layer.button)
-        XCTAssertEqual(layer.stickyLayer, "L1")
-
-        var repeatState = RemoteRepeatEngagementState<String>()
-        XCTAssertTrue(repeatState.insert("menu").inserted)
-        XCTAssertTrue(repeatState.contains("menu"))
-        XCTAssertEqual(repeatState.remove("menu"), "menu")
-        XCTAssertFalse(repeatState.contains("menu"))
-    }
-}
-''')
-
-          handler = Path('app/RemoteInputHandler.swift')
-          h = handler.read_text()
-          if 'import RemoteInputCore' not in h:
-              h = h.replace('import SiriRemoteCore\n', 'import SiriRemoteCore\nimport RemoteInputCore\n', 1)
-
-          hold_block = re.compile(r'''    /// One armed hold stage:.*?    private var armedHolds: \[String: ArmedHold\] = \[:\]\n''', re.S)
-          h, n = hold_block.subn(
+          s, count = hold_pattern.subn(
               '    private typealias ArmedStage = RemoteHoldStage\n'
               '    private typealias ArmedHold = RemoteHoldGesture\n'
-              '    private var armedHolds = RemoteHoldState<String>()\n', h, count=1)
-          if n != 1:
+              '    private var armedHolds = RemoteHoldState<String>()\n',
+              s,
+              count=1,
+          )
+          if count != 1:
               raise SystemExit('hold state block not found')
 
-          layer_block = re.compile(r'''    private enum LayerGesture \{.*?                                         // from inside the layer's own inherits chain\.\n''', re.S)
-          h, n = layer_block.subn('    private var layerState = RemoteLayerState<String>()\n', h, count=1)
-          if n != 1:
+          layer_pattern = re.compile(
+              r'    private enum LayerGesture \{.*?'
+              r'    private var stickyButton: String\?.*?\n'
+              r'                                         // from inside the layer.*?\n',
+              re.S,
+          )
+          s, count = layer_pattern.subn(
+              '    private var layerState = RemoteLayerState<String>()\n',
+              s,
+              count=1,
+          )
+          if count != 1:
               raise SystemExit('layer state block not found')
 
-          h = h.replace('private var tapRun: [String: Int] = [:]',
+          s = s.replace('private var tapRun: [String: Int] = [:]',
                         'private var tapRun = RemoteTapRunState<String>()')
-          h = h.replace('private var heldKeyEngaged: Set<String> = []',
+          s = s.replace('private var heldKeyEngaged: Set<String> = []',
                         'private var heldKeyEngaged = RemoteRepeatEngagementState<String>()')
 
-          for old, new in [
+          for old, new in (
               ('LayerGesture', 'RemoteLayerGesture'),
               ('layerButton', 'layerState.button'),
               ('layerGesture', 'layerState.gesture'),
               ('layerUsed', 'layerState.used'),
               ('stickyLayer', 'layerState.stickyLayer'),
               ('stickyButton', 'layerState.stickyButton'),
-          ]:
-              h = h.replace(old, new)
+          ):
+              s = s.replace(old, new)
 
-          h = h.replace(
+          s = s.replace(
               '                layerState.button = buttonName\n'
               '                layerState.gesture = gesture\n'
               '                layerState.used = false\n',
-              '                layerState.engage(button: buttonName, gesture: gesture)\n'
+              '                layerState.engage(button: buttonName, gesture: gesture)\n',
           )
-          h = h.replace(
+          s = s.replace(
               '                layerState.button = nil\n'
               '                layerState.gesture = nil\n'
               '                layerState.used = false\n',
-              '                layerState.resetMomentary()\n'
+              '                layerState.resetMomentary()\n',
           )
-          h = h.replace(
+          s = s.replace('if layerState.button != nil { layerState.used = true }',
+                        'layerState.markUsed()')
+          s = s.replace(
               '        let n = (tapRun[buttonName] ?? 0) + 1\n'
               '        tapRun[buttonName] = n\n',
-              '        let n = tapRun.advance(buttonName)\n'
+              '        let n = tapRun.advance(buttonName)\n',
           )
-          h = h.replace(
+          s = s.replace(
               '            let selection = releaseHoldSelection ?? HoldTiming.selection(\n'
               '                elapsed: CACurrentMediaTime() - hold.startedAt,\n'
               '                stageDelays: hold.stages.map(\\.delay),\n'
               '                cancelAt: hold.cancelAt)\n',
-              '            let selection = releaseHoldSelection ?? hold.selection(at: CACurrentMediaTime())\n'
+              '            let selection = releaseHoldSelection ?? hold.selection(at: CACurrentMediaTime())\n',
           )
-          h = h.replace('    ) -> HoldSelection? {', '    ) -> RemoteHoldSelection? {')
-          h = h.replace(
+          s = s.replace('    ) -> HoldSelection? {', '    ) -> RemoteHoldSelection? {')
+          s = s.replace(
               '        return HoldTiming.selection(\n'
               '            elapsed: now - hold.startedAt,\n'
               '            stageDelays: hold.stages.map(\\.delay),\n'
               '            cancelAt: hold.cancelAt)\n',
-              '        return hold.selection(at: now)\n'
+              '        return hold.selection(at: now)\n',
           )
-          # Use the layer reducer at the one state-only transition site.
-          h = h.replace('        if layerState.button != nil { layerState.used = true }',
-                        '        layerState.markUsed()')
+          if 'private struct ArmedStage' in s or 'private enum LayerGesture' in s:
+              raise SystemExit('old pure state still present')
+          p.write_text(s)
 
-          if 'private struct ArmedStage' in h or 'private enum RemoteLayerGesture' in h:
-              raise SystemExit('old pure input state remains in handler')
-          handler.write_text(h)
+          old = Path('app/RemoteInputState.swift')
+          if old.exists():
+              old.unlink()
 
-          old_state = Path('app/RemoteInputState.swift')
-          if not old_state.exists():
-              raise SystemExit('expected app/RemoteInputState.swift before move')
-          old_state.unlink()
-
-          build = Path('app/build.sh')
-          b = build.read_text()
-          b = b.replace('    "RemoteInputState.swift"\n', '')
+          p = Path('app/build.sh')
+          s = p.read_text().replace('    "RemoteInputState.swift"\n', '')
           marker = 'test -f "$CORE_LIBRARY" || { echo "Missing SiriRemoteCore static library" >&2; exit 1; }\n\n'
-          remote_build = '''test -f "$CORE_LIBRARY" || { echo "Missing SiriRemoteCore static library" >&2; exit 1; }\n\n# RemoteInputCore owns pure physical-input gesture state. HID callbacks/timers remain in App.\nREMOTE_INPUT_BUILD_ARGS=(--package-path "$CORE_PACKAGE" -c release --product RemoteInputCore)\nif [ "${HYPERVIBE_STRICT_CONCURRENCY:-0}" = "1" ]; then\n    REMOTE_INPUT_BUILD_ARGS+=(\n        -Xswiftc -warn-concurrency\n        -Xswiftc -strict-concurrency=complete\n        -Xswiftc -warnings-as-errors\n    )\nfi\nswift build "${REMOTE_INPUT_BUILD_ARGS[@]}"\nREMOTE_INPUT_LIBRARY="$CORE_BIN_PATH/libRemoteInputCore.a"\ntest -e "$CORE_MODULE_PATH/RemoteInputCore.swiftmodule" || { echo "Missing RemoteInputCore module" >&2; exit 1; }\ntest -f "$REMOTE_INPUT_LIBRARY" || { echo "Missing RemoteInputCore static library" >&2; exit 1; }\n\n'''
-          if marker not in b:
-              raise SystemExit('Core library marker missing from build.sh')
-          b = b.replace(marker, remote_build, 1)
-          b = b.replace('    "$CORE_LIBRARY" \\\n', '    "$CORE_LIBRARY" \\\n    "$REMOTE_INPUT_LIBRARY" \\\n', 1)
-          build.write_text(b)
+          insertion = '''test -f "$CORE_LIBRARY" || { echo "Missing SiriRemoteCore static library" >&2; exit 1; }\n\n# RemoteInputCore owns pure physical-input gesture state. HID callbacks/timers remain in App.\nREMOTE_INPUT_BUILD_ARGS=(--package-path "$CORE_PACKAGE" -c release --product RemoteInputCore)\nif [ "${HYPERVIBE_STRICT_CONCURRENCY:-0}" = "1" ]; then\n    REMOTE_INPUT_BUILD_ARGS+=(\n        -Xswiftc -warn-concurrency\n        -Xswiftc -strict-concurrency=complete\n        -Xswiftc -warnings-as-errors\n    )\nfi\nswift build "${REMOTE_INPUT_BUILD_ARGS[@]}"\nREMOTE_INPUT_LIBRARY="$CORE_BIN_PATH/libRemoteInputCore.a"\ntest -e "$CORE_MODULE_PATH/RemoteInputCore.swiftmodule" || { echo "Missing RemoteInputCore module" >&2; exit 1; }\ntest -f "$REMOTE_INPUT_LIBRARY" || { echo "Missing RemoteInputCore static library" >&2; exit 1; }\n\n'''
+          if marker not in s:
+              raise SystemExit('core library marker not found')
+          s = s.replace(marker, insertion, 1)
+          s = s.replace('    "$CORE_LIBRARY" \\\n',
+                        '    "$CORE_LIBRARY" \\\n    "$REMOTE_INPUT_LIBRARY" \\\n', 1)
+          p.write_text(s)
           PY
 
-      - name: Validate RemoteInputCore extraction
+      - name: Validate Phase 2
         run: |
           git diff --check
           bash -n app/build.sh scripts/check-swift-concurrency.sh
