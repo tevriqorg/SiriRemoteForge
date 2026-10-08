@@ -20,6 +20,10 @@ jobs:
           fetch-depth: 0
       - name: Diff whitespace
         run: git diff --check origin/main...HEAD
+      - name: Production Core module boundary
+        run: |
+          ! grep -q '../SiriRemoteCore/Sources/' app/build.sh
+          grep -q 'libSiriRemoteCore.a' app/build.sh
       - name: Shell syntax
         run: |
           bash -n \
