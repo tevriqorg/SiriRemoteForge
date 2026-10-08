@@ -1,0 +1,61 @@
+name: Concurrency Rescue
+
+on:
+  push:
+    branches:
+      - 'chatgpt/concurrency-closeout-20261008'
+    paths:
+      - '.github/workflows/concurrency-rescue.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  rescue:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Re-run the already validated finalizer steps
+        run: |
+          ruby <<'RUBY'
+          require 'yaml'
+          workflow = YAML.load_file('.github/workflows/concurrency-finalize.yml')
+          steps = workflow.fetch('jobs').fetch('finalize').fetch('steps')
+          wanted = [
+            'Apply final safe Sendable declarations and build switch',
+            'Generate strict App diagnostic baseline',
+            'Add permanent concurrency gate and documentation',
+            'Validate permanent gate and normal tests',
+          ]
+          wanted.each do |name|
+            step = steps.find { |item| item['name'] == name }
+            abort("missing finalizer step: #{name}") unless step && step['run']
+            puts "\n=== #{name} ==="
+            ok = system('bash', '-euo', 'pipefail', '-c', step['run'])
+            abort("finalizer step failed: #{name}") unless ok
+          end
+          RUBY
+
+      - name: Commit only validated product and gate files
+        run: |
+          # GitHub Actions' token is intentionally not used to update another workflow file.
+          # The connected GitHub client will apply ci.yml after this validated commit lands.
+          git checkout -- .github/workflows/ci.yml
+          git config user.name "tevriq"
+          git config user.email "318064862+tevriq@users.noreply.github.com"
+          git add \
+            app/TuneSettings.swift \
+            app/VoiceTranscriptionClient.swift \
+            app/VoiceFeedbackSound.swift \
+            app/VoiceTextProcessing.swift \
+            app/VoiceTextDelivery.swift \
+            app/build.sh \
+            scripts/check-swift-concurrency.sh \
+            scripts/swift-concurrency-baseline.txt \
+            docs/concurrency.md
+          git diff --cached --check
+          git commit -m "ci: enforce Swift concurrency debt boundary By ChatGPT"
+          git push origin HEAD
