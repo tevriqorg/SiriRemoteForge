@@ -1,0 +1,103 @@
+name: Architecture R1 Workbench
+
+on:
+  push:
+    branches:
+      - 'chatgpt/architecture-r1-20261008'
+    paths:
+      - '.github/workflows/architecture-r1-workbench.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  phase1-core-boundary:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt/architecture-r1-20261008
+          fetch-depth: 0
+
+      - name: Apply real SiriRemoteCore production module boundary
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          package = Path('SiriRemoteCore/Package.swift')
+          text = package.read_text()
+          old = 'products: [.library(name: "SiriRemoteCore", targets: ["SiriRemoteCore"])],'
+          new = 'products: [.library(name: "SiriRemoteCore", type: .static, targets: ["SiriRemoteCore"])],'
+          if old not in text and new not in text:
+              raise SystemExit('Package.swift product shape changed unexpectedly')
+          package.write_text(text.replace(old, new))
+
+          build = Path('app/build.sh')
+          text = build.read_text()
+          core_lines = re.findall(r'^    "\.\./SiriRemoteCore/Sources/SiriRemoteCore/[^\n]+\n', text, flags=re.M)
+          if not core_lines:
+              raise SystemExit('expected inlined SiriRemoteCore source list')
+          for line in core_lines:
+              text = text.replace(line, '')
+
+          marker = 'echo "Building for: $TARGET"\n\n'
+          insertion = '''echo "Building for: $TARGET"\n\n# Build SiriRemoteCore as the real SwiftPM module used by production. Unit tests and the App now\n# compile the same target instead of recompiling Core source files into the App module. A static\n# library keeps the existing single-bundle runtime topology: there is no new dylib to embed/sign.\nCORE_PACKAGE="$PWD/../SiriRemoteCore"\nCORE_BUILD_ARGS=(--package-path "$CORE_PACKAGE" -c release --product SiriRemoteCore)\nif [ "${HYPERVIBE_STRICT_CONCURRENCY:-0}" = "1" ]; then\n    CORE_BUILD_ARGS+=(\n        -Xswiftc -warn-concurrency\n        -Xswiftc -strict-concurrency=complete\n        -Xswiftc -warnings-as-errors\n    )\nfi\nswift build "${CORE_BUILD_ARGS[@]}"\nCORE_BIN_PATH="$(swift build --package-path "$CORE_PACKAGE" -c release --show-bin-path)"\nCORE_MODULE_PATH="$CORE_BIN_PATH/Modules"\nCORE_LIBRARY="$CORE_BIN_PATH/libSiriRemoteCore.a"\ntest -e "$CORE_MODULE_PATH/SiriRemoteCore.swiftmodule" || { echo "Missing SiriRemoteCore module" >&2; exit 1; }\ntest -f "$CORE_LIBRARY" || { echo "Missing SiriRemoteCore static library" >&2; exit 1; }\n\n'''
+          if marker not in text:
+              raise SystemExit('build target marker missing')
+          text = text.replace(marker, insertion, 1)
+
+          needle = '    "${SWIFT_FILES[@]}" \\\n    BuiltinMicRingWriter.o \\\n'
+          repl = '    -I "$CORE_MODULE_PATH" \\\n    "${SWIFT_FILES[@]}" \\\n    BuiltinMicRingWriter.o \\\n    "$CORE_LIBRARY" \\\n'
+          if needle not in text:
+              raise SystemExit('main swiftc input marker missing')
+          text = text.replace(needle, repl, 1)
+          build.write_text(text)
+
+          # Swift imports are file scoped. Every root App Swift file compiled into the executable\n          # explicitly imports the production Core module. Unused module imports are warning-free.\n          match = re.search(r'SWIFT_FILES=\(\n(?P<body>.*?)\n\)', text, flags=re.S)
+          if not match:
+              raise SystemExit('SWIFT_FILES array not found')
+          names = re.findall(r'^    "([^"/]+\.swift)"$', match.group('body'), flags=re.M)
+          for name in names:
+              p = Path('app') / name
+              if not p.exists():
+                  raise SystemExit(f'missing App source: {p}')
+              src = p.read_text()
+              if 'import SiriRemoteCore' not in src:
+                  p.write_text('import SiriRemoteCore\n' + src)
+
+          # Remove the accidental extra blank line from the first extraction while it still lives\n          # in app/. Phase 2 will move this pure state into RemoteInputCore.\n          state = Path('app/RemoteInputState.swift')
+          if state.exists():
+              state.write_text(state.read_text().rstrip() + '\n')
+
+          ci = Path('.github/workflows/ci.yml')
+          ci_text = ci.read_text()
+          shell_step = '      - name: Shell syntax\n'
+          boundary = '''      - name: Production Core module boundary\n        run: |\n          ! grep -q '../SiriRemoteCore/Sources/' app/build.sh\n          grep -q 'libSiriRemoteCore.a' app/build.sh\n      - name: Shell syntax\n'''
+          if 'Production Core module boundary' not in ci_text:
+              if shell_step not in ci_text:
+                  raise SystemExit('CI shell step marker missing')
+              ci_text = ci_text.replace(shell_step, boundary, 1)
+              ci.write_text(ci_text)
+          PY
+
+      - name: Validate Phase 1
+        run: |
+          git diff --check
+          bash -n app/build.sh scripts/check-swift-concurrency.sh
+          swift build --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+          swift test --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+          ./scripts/check-swift-concurrency.sh
+          cd app
+          ./build.sh
+          HYPERVIBE_SIGN_MODE=adhoc ./create_app_bundle.sh
+          codesign --verify --deep --strict --verbose=2 .build/HyperVibe-Dev.app
+
+      - name: Commit validated Phase 1
+        run: |
+          git config user.name "tevriq"
+          git config user.email "318064862+tevriq@users.noreply.github.com"
+          git add SiriRemoteCore/Package.swift app .github/workflows/ci.yml
+          git diff --cached --check
+          git commit -m "refactor: link production app against SiriRemoteCore module By ChatGPT"
+          git push origin HEAD:chatgpt/architecture-r1-20261008
