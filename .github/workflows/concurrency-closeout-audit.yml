@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - 'chatgpt/concurrency-closeout-20261008'
+    paths-ignore:
+      - '.concurrency-audit.txt'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   audit:
@@ -56,11 +58,35 @@ jobs:
           set -o pipefail
           ./build.sh 2>&1 | tee ../app-strict.log
 
-      - name: Summarize diagnostics
+      - name: Write concise audit report
         if: always()
         run: |
-          echo '=== SiriRemoteCore diagnostics ==='
-          grep -n -E 'warning:|error:' core-strict.log core-test-strict.log || true
-          echo
-          echo '=== App diagnostics ==='
-          grep -n -E 'warning:|error:' app-strict.log || true
+          {
+            echo '# Swift concurrency closeout audit'
+            echo
+            echo '## SiriRemoteCore diagnostics'
+            grep -E '(^|/)[^:]+:[0-9]+:[0-9]+: (warning|error):' core-strict.log core-test-strict.log | sort -u || true
+            echo
+            echo '## App diagnostics'
+            grep -E '(^|/)[^:]+:[0-9]+:[0-9]+: (warning|error):' app-strict.log | sort -u || true
+            echo
+            echo '## @unchecked Sendable inventory'
+            grep -R -n --include='*.swift' '@unchecked Sendable' app SiriRemoteCore | sort || true
+            echo
+            echo '## synchronous queue hops'
+            grep -R -n -E --include='*.swift' 'DispatchQueue\.main\.sync|\.sync\s*\{' app SiriRemoteCore | sort || true
+          } > .concurrency-audit.txt
+          cat .concurrency-audit.txt
+
+      - name: Persist audit report on the temporary branch
+        if: always()
+        run: |
+          git checkout -- app/build.sh
+          git config user.name "tevriq"
+          git config user.email "318064862+tevriq@users.noreply.github.com"
+          git add .concurrency-audit.txt
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "ci: capture concurrency audit report By ChatGPT"
+          git push origin HEAD
