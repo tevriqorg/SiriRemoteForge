@@ -1,0 +1,66 @@
+name: Concurrency Closeout Audit
+
+on:
+  push:
+    branches:
+      - 'chatgpt/concurrency-closeout-20261008'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Capture concurrency inventory
+        run: |
+          set -euo pipefail
+          echo '=== unchecked Sendable ==='
+          grep -R -n --include='*.swift' '@unchecked Sendable' app SiriRemoteCore || true
+          echo
+          echo '=== Dispatch / lock ownership markers ==='
+          grep -R -n -E --include='*.swift' 'DispatchQueue|NSLock|OSAllocatedUnfairLock|os_unfair_lock|DispatchSpecificKey|DispatchWorkItem|Timer\.' app SiriRemoteCore | head -n 800 || true
+
+      - name: Strict concurrency build and test SiriRemoteCore
+        run: |
+          set -o pipefail
+          swift build --package-path SiriRemoteCore \
+            -Xswiftc -warn-concurrency \
+            -Xswiftc -strict-concurrency=complete \
+            2>&1 | tee core-strict.log
+          swift test --package-path SiriRemoteCore \
+            -Xswiftc -warn-concurrency \
+            -Xswiftc -strict-concurrency=complete \
+            2>&1 | tee core-test-strict.log
+
+      - name: Instrument app build for complete concurrency diagnostics
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('app/build.sh')
+          text = path.read_text()
+          needle = 'swiftc \\\n'
+          replacement = 'swiftc \\\n    -warn-concurrency \\\n    -strict-concurrency=complete \\\n'
+          count = text.count(needle)
+          if count != 2:
+              raise SystemExit(f'expected exactly two swiftc invocations, found {count}')
+          path.write_text(text.replace(needle, replacement))
+          PY
+          git diff -- app/build.sh
+
+      - name: Strict concurrency build app
+        working-directory: app
+        run: |
+          set -o pipefail
+          ./build.sh 2>&1 | tee ../app-strict.log
+
+      - name: Summarize diagnostics
+        if: always()
+        run: |
+          echo '=== SiriRemoteCore diagnostics ==='
+          grep -n -E 'warning:|error:' core-strict.log core-test-strict.log || true
+          echo
+          echo '=== App diagnostics ==='
+          grep -n -E 'warning:|error:' app-strict.log || true
