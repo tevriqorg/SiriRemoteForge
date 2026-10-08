@@ -1,0 +1,130 @@
+name: Runtime Smoke
+
+on:
+  push:
+    branches:
+      - main
+      - 'chatgpt/runtime-smoke-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime-smoke:
+    name: macOS app runtime smoke
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Capture host facts
+        run: |
+          mkdir -p runtime-artifacts/logs runtime-artifacts/snapshots runtime-artifacts/crashes
+          {
+            echo "=== sw_vers ==="
+            sw_vers
+            echo
+            echo "=== uname ==="
+            uname -a
+            echo
+            echo "=== swift ==="
+            swift --version
+          } | tee runtime-artifacts/host.txt
+
+      - name: Build and test SiriRemoteCore
+        run: |
+          swift build --package-path SiriRemoteCore 2>&1 | tee runtime-artifacts/logs/core-build.log
+          swift test --package-path SiriRemoteCore 2>&1 | tee runtime-artifacts/logs/core-test.log
+
+      - name: Build app
+        working-directory: app
+        run: ./build.sh 2>&1 | tee ../runtime-artifacts/logs/app-build.log
+
+      - name: Stage explicit ad-hoc CI candidate
+        working-directory: app
+        run: HYPERVIBE_SIGN_MODE=adhoc ./create_app_bundle.sh 2>&1 | tee ../runtime-artifacts/logs/app-stage.log
+
+      - name: Verify staged candidate
+        run: |
+          APP_BUNDLE="app/.build/HyperVibe-Dev.app"
+          codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE" 2>&1 | tee runtime-artifacts/logs/codesign.log
+          test "$(plutil -extract CFBundleIdentifier raw -o - "$APP_BUNDLE/Contents/Info.plist")" = "org.tevriq.siriremoteforge"
+          test "$(plutil -extract HyperVibeCredentialBackend raw -o - "$APP_BUNDLE/Contents/Info.plist")" = "local-json"
+          ! plutil -extract SUFeedURL raw -o - "$APP_BUNDLE/Contents/Info.plist" >/dev/null 2>&1
+          ! plutil -extract SUPublicEDKey raw -o - "$APP_BUNDLE/Contents/Info.plist" >/dev/null 2>&1
+
+      - name: Run isolated runtime self-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP="app/.build/HyperVibe-Dev.app/Contents/MacOS/HyperVibe"
+          ART="$PWD/runtime-artifacts"
+
+          run_case() {
+            local name="$1"
+            shift
+            local log="$ART/logs/${name}.log"
+            local start=$SECONDS
+
+            echo "=== RUN ${name}: $* ===" | tee "$log"
+            set +e
+            NSUnbufferedIO=YES "$APP" "$@" >>"$log" 2>&1 &
+            local pid=$!
+            set -e
+
+            while kill -0 "$pid" 2>/dev/null; do
+              if (( SECONDS - start >= 25 )); then
+                echo "TIMEOUT after 25s" | tee -a "$log"
+                kill -TERM "$pid" 2>/dev/null || true
+                sleep 1
+                kill -KILL "$pid" 2>/dev/null || true
+                wait "$pid" 2>/dev/null || true
+                return 124
+              fi
+              sleep 0.2
+            done
+
+            set +e
+            wait "$pid"
+            local status=$?
+            set -e
+            echo "EXIT ${status}" | tee -a "$log"
+            return "$status"
+          }
+
+          # All cases below return before production Remote/HID/microphone/network setup.
+          run_case shortcut-recorder --test-shortcut-recorder
+          run_case voice-mode-return-to-final --test-voice-mode-return-to-final
+          run_case voice-mode-icon-exit --test-voice-mode-icon-exit
+          run_case layer-hud --test-layer-hud
+          run_case layout-snapshot --snapshot-layout "$ART/snapshots/layout.png"
+          run_case voice-mode-external-snapshot --snapshot-voice-mode-hud external "$ART/snapshots/voice-mode-external.png"
+          run_case voice-mode-final-snapshot --snapshot-voice-mode-hud final "$ART/snapshots/voice-mode-final.png"
+          run_case voice-mode-streaming-snapshot --snapshot-voice-mode-hud streaming "$ART/snapshots/voice-mode-streaming.png"
+
+          echo "=== Generated snapshots ==="
+          find "$ART/snapshots" -maxdepth 1 -type f -print -exec file {} \;
+
+      - name: Collect HyperVibe crash reports
+        if: always()
+        run: |
+          mkdir -p runtime-artifacts/crashes
+          find "$HOME/Library/Logs/DiagnosticReports" -maxdepth 1 -type f \
+            \( -name 'HyperVibe*.crash' -o -name 'HyperVibe*.ips' \) \
+            -exec cp {} runtime-artifacts/crashes/ \; 2>/dev/null || true
+
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-smoke-${{ github.run_id }}
+          path: runtime-artifacts
+          if-no-files-found: warn
+          retention-days: 7
