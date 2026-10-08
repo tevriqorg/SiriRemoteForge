@@ -1,0 +1,96 @@
+name: Corpus Sendable Refactor
+
+on:
+  push:
+    branches:
+      - 'chatgpt/runtime-smoke-corpus-sendable-20261008'
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    if: ${{ !contains(github.event.head_commit.message, 'fix: narrow corpus sendable boundary') }}
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply narrow concurrency refactor
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('app/CorpusRecorder.swift')
+          text = path.read_text()
+
+          def replace_once(old, new):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected one occurrence, found {count}: {old[:80]!r}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              'private final class VoiceCorpusWAVSpool {\n    struct Finalization {',
+              '''/// Mutable spool state is fully serialized by `lock`; capture and persistence are\n/// intentionally allowed to share this object across their dedicated queues.\nprivate final class VoiceCorpusWAVSpool: @unchecked Sendable {\n    struct Finalization: Sendable {'''
+          )
+
+          marker = '''    }\n\n    private struct CaptureRecord: Codable {'''
+          insertion = '''    }\n\n    /// Immutable metadata copied on the main lifecycle path before the async stop/persist hop.\n    /// Keeping this separate from `Session` prevents its mutable text-observation state from\n    /// crossing a Sendable boundary.\n    private struct CapturePersistenceSnapshot: Sendable {\n        let id: UUID\n        let startedAt: Date\n        let directoryURL: URL\n        let actionKey: String\n        let actionKind: String\n        let shortcutKeys: String\n        let applicationName: String?\n        let bundleIdentifier: String?\n\n        init(_ session: Session) {\n            id = session.id\n            startedAt = session.startedAt\n            directoryURL = session.directoryURL\n            actionKey = session.actionKey\n            actionKind = session.actionKind\n            shortcutKeys = session.shortcutKeys\n            applicationName = session.applicationName\n            bundleIdentifier = session.bundleIdentifier\n        }\n    }\n\n    /// File persistence is stateless apart from immutable dependencies. The object is shared with\n    /// the corpus I/O queue so the recorder itself and its mutable `Session` never need Sendable\n    /// conformance. Storage-status delivery is always bounced back to the main queue.\n    private final class CapturePersistence: @unchecked Sendable {\n        private let fileManager: FileManager\n        private let onStorageStatus: (String?) -> Void\n\n        init(fileManager: FileManager, onStorageStatus: @escaping (String?) -> Void) {\n            self.fileManager = fileManager\n            self.onStorageStatus = onStorageStatus\n        }\n\n        func persist(\n            snapshot: CapturePersistenceSnapshot,\n            endedAt: Date,\n            audio: VoiceCapturedAudio,\n            storage: VoiceCorpusWAVSpool.Finalization\n        ) {\n            if storage.status != "complete" {\n                reportStorageFailure(\n                    "Voice Corpus audio is incomplete for sample \\(snapshot.id.uuidString)."\n                )\n            }\n            do {\n                let recordURL = snapshot.directoryURL.appendingPathComponent("capture.json")\n                let record = CaptureRecord(\n                    version: 1,\n                    id: snapshot.id,\n                    startedAt: snapshot.startedAt,\n                    endedAt: endedAt,\n                    actionKey: snapshot.actionKey,\n                    actionKind: snapshot.actionKind,\n                    shortcutKeys: snapshot.shortcutKeys,\n                    applicationName: snapshot.applicationName,\n                    bundleIdentifier: snapshot.bundleIdentifier,\n                    audioFile: "audio.wav",\n                    audioSource: audio.source.rawValue,\n                    audioStorageStatus: storage.status,\n                    audioCaptureStatus: audio.frameCount > 0 ? "captured" : "no_frames",\n                    audioStoredFrameCount: storage.storedFrameCount,\n                    sampleRate: audio.sampleRate,\n                    frameCount: audio.frameCount,\n                    durationSeconds: audio.duration,\n                    meanSquare: audio.meanSquare\n                )\n                let encoder = JSONEncoder()\n                encoder.dateEncodingStrategy = .iso8601\n                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]\n                try encoder.encode(record).write(to: recordURL, options: .atomic)\n                try secureFile(recordURL)\n                rmDebug("🗂 corpus: saved id=\\(snapshot.id.uuidString) "\n                        + "source=\\(audio.source.rawValue) duration=\\(String(format: \"%.2f\", audio.duration))s "\n                        + "storage=\\(storage.status) frames=\\(storage.storedFrameCount)/\\(audio.frameCount)")\n            } catch {\n                reportStorageFailure(\n                    "Voice Corpus cannot save capture metadata: \\(error.localizedDescription)"\n                )\n                rmDebug("🗂 corpus: metadata save failed id=\\(snapshot.id.uuidString): "\n                        + error.localizedDescription)\n            }\n        }\n\n        private func reportStorageFailure(_ message: String) {\n            rmDebug("🗂 corpus storage failure: \\(message)")\n            let callback = onStorageStatus\n            DispatchQueue.main.async { callback(message) }\n        }\n\n        private func secureFile(_ url: URL) throws {\n            try fileManager.setAttributes(\n                [.posixPermissions: NSNumber(value: Int16(0o600))],\n                ofItemAtPath: url.path\n            )\n        }\n    }\n\n    private struct CaptureRecord: Codable {'''
+          replace_once(marker, insertion)
+
+          replace_once(
+              '    private let onStorageStatus: (String?) -> Void\n    private var active: Session?',
+              '    private let onStorageStatus: (String?) -> Void\n    private let capturePersistence: CapturePersistence\n    private var active: Session?'
+          )
+
+          replace_once(
+              '        self.fileManager = fileManager\n        self.onStorageStatus = onStorageStatus\n',
+              '        self.fileManager = fileManager\n        self.onStorageStatus = onStorageStatus\n        self.capturePersistence = CapturePersistence(\n            fileManager: fileManager, onStorageStatus: onStorageStatus\n        )\n'
+          )
+
+          old_end = '''        Task { [weak self] in\n            let audio = await session.capture.stop()\n            guard let self else { return }\n            self.ioQueue.async {\n                let storage = session.audioSpool.finalize(\n                    sampleRate: audio.sampleRate,\n                    expectedFrameCount: audio.frameCount\n                )\n                self.persistCapture(\n                    session: session,\n                    endedAt: endedAt,\n                    audio: audio,\n                    storage: storage\n                )\n            }\n        }'''
+          new_end = '''        let capture = session.capture\n        let audioSpool = session.audioSpool\n        let snapshot = CapturePersistenceSnapshot(session)\n        let ioQueue = ioQueue\n        let capturePersistence = capturePersistence\n\n        Task {\n            let audio = await capture.stop()\n            ioQueue.async {\n                let storage = audioSpool.finalize(\n                    sampleRate: audio.sampleRate,\n                    expectedFrameCount: audio.frameCount\n                )\n                capturePersistence.persist(\n                    snapshot: snapshot,\n                    endedAt: endedAt,\n                    audio: audio,\n                    storage: storage\n                )\n            }\n        }'''
+          replace_once(old_end, new_end)
+
+          pattern = re.compile(r'''\n    private func persistCapture\(\n        session: Session,\n        endedAt: Date,\n        audio: VoiceCapturedAudio,\n        storage: VoiceCorpusWAVSpool\.Finalization\n    \) \{.*?\n    \}\n\n    /// Poll briefly after release''', re.S)
+          text, count = pattern.subn('\n    /// Poll briefly after release', text, count=1)
+          if count != 1:
+              raise SystemExit(f'expected one persistCapture block, found {count}')
+
+          old_flush_active = '''            let audio = session.capture.stopBlockingForTermination()\n            drainIOQueueAndRun {\n                let storage = session.audioSpool.finalize(\n                    sampleRate: audio.sampleRate,\n                    expectedFrameCount: audio.frameCount\n                )\n                persistCapture(session: session, endedAt: endedAt, audio: audio, storage: storage)\n                persistObservation('''
+          new_flush_active = '''            let audio = session.capture.stopBlockingForTermination()\n            let captureSnapshot = CapturePersistenceSnapshot(session)\n            drainIOQueueAndRun {\n                let storage = session.audioSpool.finalize(\n                    sampleRate: audio.sampleRate,\n                    expectedFrameCount: audio.frameCount\n                )\n                capturePersistence.persist(\n                    snapshot: captureSnapshot, endedAt: endedAt, audio: audio, storage: storage\n                )\n                persistObservation('''
+          replace_once(old_flush_active, new_flush_active)
+
+          old_flush_pending = '''            let audio = session.capture.stopBlockingForTermination()\n            drainIOQueueAndRun {\n                let storage = session.audioSpool.finalize(\n                    sampleRate: audio.sampleRate,\n                    expectedFrameCount: audio.frameCount\n                )\n                // This may repeat already-completed metadata; spool finalization is idempotent and\n                // the JSON replacement is atomic.\n                persistCapture(session: session, endedAt: endedAt, audio: audio, storage: storage)'''
+          new_flush_pending = '''            let audio = session.capture.stopBlockingForTermination()\n            let captureSnapshot = CapturePersistenceSnapshot(session)\n            drainIOQueueAndRun {\n                let storage = session.audioSpool.finalize(\n                    sampleRate: audio.sampleRate,\n                    expectedFrameCount: audio.frameCount\n                )\n                // This may repeat already-completed metadata; spool finalization is idempotent and\n                // the JSON replacement is atomic.\n                capturePersistence.persist(\n                    snapshot: captureSnapshot, endedAt: endedAt, audio: audio, storage: storage\n                )'''
+          replace_once(old_flush_pending, new_flush_pending)
+
+          path.write_text(text)
+          PY
+
+      - name: Verify targeted diff
+        run: |
+          git diff --check
+          git diff -- app/CorpusRecorder.swift
+
+      - name: Build app with Swift 6 runner
+        working-directory: app
+        run: ./build.sh 2>&1 | tee ../corpus-refactor-build.log
+
+      - name: Reject corpus Sendable warnings
+        run: |
+          if grep -E "CorpusRecorder\.swift:.*warning: capture of .*non-sendable" corpus-refactor-build.log; then
+            echo "CorpusRecorder still emits non-Sendable capture warnings" >&2
+            exit 1
+          fi
+
+      - name: Commit refactor
+        run: |
+          git config user.name "tevriq"
+          git config user.email "318064862+tevriq@users.noreply.github.com"
+          git add app/CorpusRecorder.swift
+          git commit -m "fix: narrow corpus sendable boundary By ChatGPT"
+          git push origin HEAD
