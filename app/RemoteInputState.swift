@@ -92,4 +92,3 @@ struct VoiceModeChordState {
         ownsSide = false
     }
 }
-
