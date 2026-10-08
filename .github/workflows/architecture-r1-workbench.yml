@@ -54,7 +54,9 @@ jobs:
           text = text.replace(needle, repl, 1)
           build.write_text(text)
 
-          # Swift imports are file scoped. Every root App Swift file compiled into the executable\n          # explicitly imports the production Core module. Unused module imports are warning-free.\n          match = re.search(r'SWIFT_FILES=\(\n(?P<body>.*?)\n\)', text, flags=re.S)
+          # Swift imports are file scoped. Every root App Swift file compiled into the executable
+          # explicitly imports the production Core module. Unused module imports are warning-free.
+          match = re.search(r'SWIFT_FILES=\(\n(?P<body>.*?)\n\)', text, flags=re.S)
           if not match:
               raise SystemExit('SWIFT_FILES array not found')
           names = re.findall(r'^    "([^"/]+\.swift)"$', match.group('body'), flags=re.M)
@@ -66,7 +68,9 @@ jobs:
               if 'import SiriRemoteCore' not in src:
                   p.write_text('import SiriRemoteCore\n' + src)
 
-          # Remove the accidental extra blank line from the first extraction while it still lives\n          # in app/. Phase 2 will move this pure state into RemoteInputCore.\n          state = Path('app/RemoteInputState.swift')
+          # Remove the accidental extra blank line from the first extraction while it still lives
+          # in app/. Phase 2 will move this pure state into RemoteInputCore.
+          state = Path('app/RemoteInputState.swift')
           if state.exists():
               state.write_text(state.read_text().rstrip() + '\n')
 
