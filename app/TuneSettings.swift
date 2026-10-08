@@ -8,7 +8,7 @@
 
 import Foundation
 
-struct TuneSettings: Codable, Equatable {
+struct TuneSettings: Codable, Equatable, Sendable {
     var cursorSpeed: Double
     var cursorDeadzone: Double
     var accelMin: Double

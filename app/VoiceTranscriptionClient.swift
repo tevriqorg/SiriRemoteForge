@@ -374,7 +374,10 @@ actor RealtimeTranscriptState {
     }
 }
 
-final class VoiceRealtimeTranscriptionSession {
+/// URLSessionWebSocketTask is thread-safe, transcript state is actor-owned, and the only
+/// mutable local lifecycle bit (`closed`) is protected by `closeLock`. `receiveTask` is installed
+/// during `connect` before the session escapes to callers.
+final class VoiceRealtimeTranscriptionSession: @unchecked Sendable {
     private let webSocket: URLSessionWebSocketTask
     private let state: RealtimeTranscriptState
     private var receiveTask: Task<Void, Never>?

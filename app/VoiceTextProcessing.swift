@@ -125,7 +125,9 @@ enum VoiceSelectionEditError: LocalizedError {
     }
 }
 
-final class VoiceTextProcessor {
+/// URLSession is safe for concurrent use, VoiceHistoryStore owns its queue, and every
+/// mutable prewarm cache/set is protected by `prewarmLock`.
+final class VoiceTextProcessor: @unchecked Sendable {
     private let session: URLSession
     private let historyStore: VoiceHistoryStore
     private let prewarmLock = NSLock()

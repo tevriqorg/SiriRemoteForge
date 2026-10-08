@@ -553,7 +553,9 @@ private final class VoiceTextDeliveryWorker: @unchecked Sendable {
     }
 }
 
-final class VoiceTextDeliverer {
+/// This facade has no mutable state beyond the queue-confined Sendable worker. AppKit/
+/// pasteboard operations remain explicitly @MainActor at their call sites.
+final class VoiceTextDeliverer: Sendable {
     private static let markerType = NSPasteboard.PasteboardType(
         "com.hypervibe.voice-input.clipboard-transaction"
     )

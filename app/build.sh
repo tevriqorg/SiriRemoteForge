@@ -7,6 +7,14 @@ set -e
 
 echo "Building HyperVibe..."
 
+# Opt-in strict concurrency diagnostics. Ordinary developer/release builds retain the exact
+# historical compiler mode; CI enables this and compares diagnostics against the checked-in debt
+# baseline so new Swift concurrency warnings cannot enter unnoticed.
+SWIFT_CONCURRENCY_FLAGS=()
+if [ "${HYPERVIBE_STRICT_CONCURRENCY:-0}" = "1" ]; then
+    SWIFT_CONCURRENCY_FLAGS=(-warn-concurrency -strict-concurrency=complete)
+fi
+
 SWIFT_FILES=(
     "main.swift"
     "Localization.swift"
@@ -131,6 +139,7 @@ clang -c -O2 -Wall -Wextra -Werror \
 # login-keychain ACL, so ordinary HyperVibe UI changes must not alter this binary. The fixed output
 # and module names plus fixed XPC Info.plist make ld's Mach-O UUID reproducible across builds.
 swiftc \
+    "${SWIFT_CONCURRENCY_FLAGS[@]}" \
     -O \
     -whole-module-optimization \
     -parse-as-library \
@@ -157,6 +166,7 @@ clang -c -O2 -Wall -Wextra -Werror \
 
 # Build
 swiftc \
+    "${SWIFT_CONCURRENCY_FLAGS[@]}" \
     -O \
     -whole-module-optimization \
     -module-cache-path "$MODULE_CACHE" \

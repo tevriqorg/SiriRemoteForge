@@ -9,7 +9,9 @@
 import AVFoundation
 import Foundation
 
-final class VoiceFeedbackSound {
+/// All mutable AVAudioPlayer state is confined to `playbackQueue`; public playback only
+/// enqueues work and never exposes a player reference.
+final class VoiceFeedbackSound: @unchecked Sendable {
     /// The rendered assets include a short encoded/reverb tail (about 0.34–0.37 s total). Capture and the live
     /// meter exclude this bounded interval so the laptop microphone cannot turn HyperVibe's own
     /// cue into the first dictated phoneme; the already-prewarmed cloud session remains untouched.
