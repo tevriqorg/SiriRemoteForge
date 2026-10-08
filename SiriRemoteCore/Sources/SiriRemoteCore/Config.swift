@@ -1,13 +1,13 @@
 import Foundation
 
-public struct Config: Equatable {
+public struct Config: Equatable, Sendable {
     // `var` so the Settings/Tuning UI can write slider values back into the config (config stays
     // the single source of truth; see `withSettingsUpdated`).
     public var settings: Settings
     public var appProfiles: [String: String]
     public var modes: [String: Mode]
 
-    public struct Settings: Equatable {
+    public struct Settings: Equatable, Sendable {
         public var defaultMode: String
         public var swipeVelocity: Double
         public var cursorSpeed: Double
@@ -99,7 +99,7 @@ public struct Config: Equatable {
         /// here: this JSON is user-readable and commonly shared, while secrets live in Keychain.
         public var dictation: DictationSettings
     }
-    public struct Mode: Equatable {
+    public struct Mode: Equatable, Sendable {
         public var inherits: String?
         public var bindings: [String: Action]
         /// Optional display overrides, keyed by the SAME event key as `bindings`. Kept parallel
@@ -127,7 +127,7 @@ public struct Config: Equatable {
     /// How a binding should be shown on screen (the hold-progress HUD, the Layout tab).
     /// `label` overrides the derived `Action.displayLabel`; `icon` is an SF Symbol name.
     /// Both optional — everything still falls back to sensible derivation.
-    public struct Presentation: Equatable {
+    public struct Presentation: Equatable, Sendable {
         public var label: String?
         public var icon: String?
         public init(label: String? = nil, icon: String? = nil) {
@@ -139,7 +139,7 @@ public struct Config: Equatable {
     /// One entry in the ordered layer cycle. `name`, `color`, and `icon` are presentation-only; `id` is the
     /// stable value used for binding resolution (`BASE`, `L1`, ...). The app accepts system colour
     /// names and #RRGGBB/#RRGGBBAA while the core deliberately keeps the value platform-neutral.
-    public struct LayerDefinition: Codable, Equatable {
+    public struct LayerDefinition: Codable, Equatable, Sendable {
         public var id: String
         public var name: String?
         public var color: String?
@@ -153,7 +153,7 @@ public struct Config: Equatable {
         }
     }
 
-    public enum DictationOutputMode: String, Codable, CaseIterable, Hashable {
+    public enum DictationOutputMode: String, Codable, CaseIterable, Hashable, Sendable {
         /// Record the complete utterance, use the high-accuracy model, then optionally polish it.
         case final
         /// Emit low-latency transcript deltas while the user is still speaking; no LLM rewrite.
@@ -163,7 +163,7 @@ public struct Config: Equatable {
     /// Voice is a global operating mode, independent from the remote's configurable Layers.
     /// `external` deliberately leaves the side button with the ordinary JSON binding engine;
     /// the two native modes claim it for HyperVibe's own transcription pipeline.
-    public enum DictationMode: String, Codable, CaseIterable, Hashable {
+    public enum DictationMode: String, Codable, CaseIterable, Hashable, Sendable {
         case external
         case final
         case streaming
@@ -188,14 +188,14 @@ public struct Config: Equatable {
     /// Per-layer side-button policy. `inherit` keeps the global `outputMode`; `existing` leaves the
     /// side button entirely with the ordinary JSON binding engine, so enabling native Voice cannot
     /// silently replace an existing Typeless/shortcut workflow on that layer.
-    public enum DictationLayerMode: String, Codable, CaseIterable, Hashable {
+    public enum DictationLayerMode: String, Codable, CaseIterable, Hashable, Sendable {
         case inherit
         case existing
         case final
         case streaming
     }
 
-    public enum DictationCleanupProvider: String, Codable, CaseIterable {
+    public enum DictationCleanupProvider: String, Codable, CaseIterable, Sendable {
         case none
         case openAI = "openai"
         case deepSeek = "deepseek"
@@ -203,14 +203,14 @@ public struct Config: Equatable {
 
     /// Selection editing always needs an instruction-following model. It is intentionally separate
     /// from transcript cleanup: Live Voice may skip cleanup while still rewriting selected text.
-    public enum DictationSelectionEditProvider: String, Codable, CaseIterable {
+    public enum DictationSelectionEditProvider: String, Codable, CaseIterable, Sendable {
         case openAI = "openai"
         case deepSeek = "deepseek"
     }
 
     /// A canonical spelling plus common recognition variants. Canonical terms are sent as model
     /// keyword hints; aliases are also corrected deterministically on-device after transcription.
-    public struct DictationTerm: Codable, Equatable {
+    public struct DictationTerm: Codable, Equatable, Sendable {
         public var term: String
         public var aliases: [String]
 
@@ -229,7 +229,7 @@ public struct Config: Equatable {
     }
 
     /// Complete, shareable voice-input behaviour. Secrets and transcript history stay out of it.
-    public struct DictationSettings: Codable, Equatable {
+    public struct DictationSettings: Codable, Equatable, Sendable {
         public var enabled: Bool
         /// The one Voice route used on every Layer. It can be changed from Settings or by holding
         /// Mute and tapping the side button; unlike the legacy `layerModes`, changing Layer never

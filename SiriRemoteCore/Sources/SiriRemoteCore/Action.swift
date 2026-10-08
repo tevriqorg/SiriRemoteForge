@@ -1,6 +1,6 @@
 import Foundation
 
-public enum Action: Equatable {
+public enum Action: Equatable, Sendable {
     case keystroke(keys: String)
     // Push-to-talk: fire `keys` on the button's PRESS edge AND again on its RELEASE edge,
     // immediately, bypassing tap/double/hold/taphold discrimination and auto-repeat entirely

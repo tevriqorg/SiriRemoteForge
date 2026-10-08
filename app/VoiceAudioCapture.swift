@@ -64,6 +64,7 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "com.hypervibe.voice-audio-capture",
                                       qos: .userInitiated)
+    private let queueKey = DispatchSpecificKey<Void>()
     private let continuation: AsyncStream<Data>.Continuation
     private let minimumDuration: TimeInterval
     private let maxDuration: TimeInterval
@@ -141,6 +142,7 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
         builtinProbe.reserveCapacity(6_000)
         remoteProbe.reserveCapacity(15_000)
         if retainPCM { capturedPCM.reserveCapacity(65_536) }
+        queue.setSpecific(key: queueKey, value: ())
     }
 
     func start() {
@@ -166,7 +168,14 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
     /// from the main thread while the process is shutting down so queued PCM is not abandoned before
     /// the asynchronous corpus writer gets a chance to run.
     func stopBlockingForTermination() -> VoiceCapturedAudio {
-        queue.sync { stopOnQueue() }
+        syncOnQueue { stopOnQueue() }
+    }
+
+    /// Synchronous access is termination/support-only. Execute inline when already on the capture
+    /// queue so a future queue-owned caller cannot deadlock by synchronising onto itself.
+    private func syncOnQueue<T>(_ work: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: queueKey) != nil { return work() }
+        return queue.sync(execute: work)
     }
 
     func excludeAcousticFeedback(for duration: TimeInterval) {

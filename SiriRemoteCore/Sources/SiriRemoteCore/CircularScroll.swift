@@ -2,7 +2,7 @@ import Foundation
 
 /// All-tunable parameters for the iPod-style circular-scroll gesture. Center is (0.5, 0.5)
 /// in normalized touch coordinates; radius/angles are in normalized units / radians.
-public struct CircularScrollConfig: Equatable {
+public struct CircularScrollConfig: Equatable, Sendable {
     /// Master on/off.
     public var enabled: Bool
     /// Only touches at least this far from center count (the "outer ring"). 0…~0.707.

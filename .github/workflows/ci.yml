@@ -25,6 +25,7 @@ jobs:
           bash -n \
             app/create_app_bundle.sh \
             app/build.sh \
+            scripts/check-swift-concurrency.sh \
             dist/build-release.sh \
             dist/package.sh \
             dist/update-appcast.sh \
@@ -38,10 +39,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Show toolchain
         run: swift --version
-      - name: Build
-        run: swift build --package-path SiriRemoteCore
-      - name: Test
-        run: swift test --package-path SiriRemoteCore
+      - name: Build with complete concurrency checking
+        run: swift build --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+      - name: Test with complete concurrency checking
+        run: swift test --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
 
   app:
     name: App (compiles, links, and stages)
@@ -51,9 +52,8 @@ jobs:
       # The app is compiled straight with swiftc (no Xcode project) and links the private
       # MultitouchSupport framework. CI cannot exercise real HID/TCC, but it can prove the binary,
       # local bundle assembly, nested signing topology, and fail-closed Info.plist invariants.
-      - name: Build app
-        working-directory: app
-        run: ./build.sh
+      - name: Build app and reject new concurrency diagnostics
+        run: ./scripts/check-swift-concurrency.sh
       - name: Stage ad-hoc local candidate
         working-directory: app
         run: HYPERVIBE_SIGN_MODE=adhoc ./create_app_bundle.sh

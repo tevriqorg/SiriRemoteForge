@@ -1,0 +1,536 @@
+# count<TAB>file<TAB>warning fingerprint
+35	ActionSymbolStyle.swift	call to main actor-isolated instance method 'addSymbolEffect(_:options:animated:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	ActionSymbolStyle.swift	call to main actor-isolated instance method 'removeAllSymbolEffects(options:animated:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	ActionSymbolStyle.swift	call to main actor-isolated instance method 'setSymbolImage(_:contentTransition:options:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	ActionSymbolStyle.swift	sending 'image' risks causing data races; this is an error in the Swift 6 language mode
+1	ActionVisual.swift	static property 'iconCache' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	AppWatcher.swift	capture of 'self' with non-sendable type 'AppWatcher?' in a '@Sendable' closure
+1	AppWheel.swift	call to main actor-isolated initializer 'init(contentRect:styleMask:backing:defer:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	AppWheel.swift	call to main actor-isolated initializer 'init(rootView:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	AppWheel.swift	call to main actor-isolated instance method 'orderFrontRegardless()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	AppWheel.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	AppWheel.swift	capture of 'self' with non-sendable type 'AppWheelController' in a '@Sendable' closure
+2	AppWheel.swift	capture of 'self' with non-sendable type 'AppWheelController?' in a '@Sendable' closure
+1	AppWheel.swift	main actor-isolated property 'alphaValue' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	AppWheel.swift	main actor-isolated property 'backgroundColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	AppWheel.swift	main actor-isolated property 'collectionBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	AppWheel.swift	main actor-isolated property 'contentView' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	AppWheel.swift	main actor-isolated property 'hasShadow' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	AppWheel.swift	main actor-isolated property 'ignoresMouseEvents' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	AppWheel.swift	main actor-isolated property 'isOpaque' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	AppWheel.swift	main actor-isolated property 'level' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	AppWheel.swift	sending 'self' risks causing data races; this is an error in the Swift 6 language mode
+1	Brightness.swift	converting non-sendable function value to '@MainActor @Sendable @convention(block) () -> Void' may introduce data races
+1	Brightness.swift	static property 'handle' is not concurrency-safe because non-'Sendable' type 'UnsafeMutableRawPointer?' may have shared mutable state; this is an error in the Swift 6 language mode
+1	Brightness.swift	static property 'isDimmed' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	Brightness.swift	static property 'lastDiagLog' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	Brightness.swift	static property 'rampGeneration' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	BuiltinMicFeeder.swift	capture of 'handler' with non-sendable type '(VoiceMeterSample) -> Void' in a '@Sendable' closure
+8	BuiltinMicFeeder.swift	capture of 'self' with non-sendable type 'BuiltinMicFeeder?' in a '@Sendable' closure
+1	BuiltinMicFeeder.swift	reference to captured var 'self' in concurrently-executing code
+2	CorpusRecorder.swift	capture of 'callback' with non-sendable type '(String?) -> Void' in a '@Sendable' closure
+8	CorpusRecorder.swift	capture of 'self' with non-sendable type 'VoiceCorpusRecorder?' in a '@Sendable' closure
+9	CorpusRecorder.swift	capture of 'session' with non-sendable type 'VoiceCorpusRecorder.Session' in a '@Sendable' closure
+1	CorpusRecorder.swift	reference to captured var 'self' in concurrently-executing code
+1	CorpusRecorder.swift	sending 'callback' risks causing data races; this is an error in the Swift 6 language mode
+2	CorpusRecorder.swift	sending 'self' risks causing data races; this is an error in the Swift 6 language mode
+2	CorpusRecorder.swift	sending 'session' risks causing data races; this is an error in the Swift 6 language mode
+1	CursorController.swift	capture of 'self' with non-sendable type 'CursorController?' in a '@Sendable' closure
+1	CursorHighlighter.swift	call to main actor-isolated initializer 'init(contentRect:styleMask:backing:defer:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	CursorHighlighter.swift	call to main actor-isolated initializer 'init(frame:color:ringDiameter:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	CursorHighlighter.swift	call to main actor-isolated instance method 'orderFrontRegardless()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	CursorHighlighter.swift	call to main actor-isolated instance method 'orderOut' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	CursorHighlighter.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	CursorHighlighter.swift	call to main actor-isolated instance method 'startRipples()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	CursorHighlighter.swift	call to main actor-isolated instance method 'stopRipples()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	CursorHighlighter.swift	call to main actor-isolated instance method 'update(color:ringDiameter:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	CursorHighlighter.swift	capture of 'self' with non-sendable type 'CursorHighlighter?' in a '@Sendable' closure
+1	CursorHighlighter.swift	main actor-isolated property 'backgroundColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	CursorHighlighter.swift	main actor-isolated property 'collectionBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	CursorHighlighter.swift	main actor-isolated property 'contentView' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	CursorHighlighter.swift	main actor-isolated property 'hasShadow' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	CursorHighlighter.swift	main actor-isolated property 'ignoresMouseEvents' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	CursorHighlighter.swift	main actor-isolated property 'isOpaque' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+5	CursorHighlighter.swift	main actor-isolated property 'layer' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	CursorHighlighter.swift	main actor-isolated property 'level' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	CursorHighlighter.swift	passing non-sendable parameter 'work' to function expecting a @Sendable closure
+1	DemoMode.swift	call to main actor-isolated initializer 'init(contentRect:styleMask:backing:defer:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	call to main actor-isolated initializer 'init(frame:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	call to main actor-isolated initializer 'init(frame:minimumSize:maximumSize:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	call to main actor-isolated initializer 'init(rootView:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	DemoMode.swift	call to main actor-isolated instance method 'addSubview' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	call to main actor-isolated instance method 'animator()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+3	DemoMode.swift	call to main actor-isolated instance method 'orderFrontRegardless()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	call to main actor-isolated instance method 'orderOut' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	DemoMode.swift	call to main actor-isolated instance method 'setFrame(_:display:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+5	DemoMode.swift	capture of 'self' with non-sendable type 'DemoModeWindowController?' in a '@Sendable' closure
+1	DemoMode.swift	main actor-isolated property 'animationBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	DemoMode.swift	main actor-isolated property 'autoresizingMask' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'backgroundColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	DemoMode.swift	main actor-isolated property 'bounds' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'collectionBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'contentAspectRatio' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'contentMaxSize' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'contentMinSize' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'contentView' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'currentWidth' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'delegate' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'frame' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+15	DemoMode.swift	main actor-isolated property 'frame' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'hasShadow' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'hidesOnDeactivate' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'isFloatingPanel' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'isMovableByWindowBackground' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'isOpaque' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'isReleasedWhenClosed' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+3	DemoMode.swift	main actor-isolated property 'isVisible' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+6	DemoMode.swift	main actor-isolated property 'layer' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'level' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'onClose' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	main actor-isolated property 'onSelectSize' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	DemoMode.swift	main actor-isolated property 'wantsLayer' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DemoMode.swift	passing non-sendable parameter 'work' to function expecting a @Sendable closure
+3	DemoMode.swift	sending 'self' risks causing data races; this is an error in the Swift 6 language mode
+3	DeviceInfo.swift	capture of 'self' with non-sendable type 'DeviceInfo?' in a '@Sendable' closure
+1	DeviceInfo.swift	reference to captured var 'self' in concurrently-executing code
+1	DragIndicator.swift	call to main actor-isolated initializer 'init(contentRect:styleMask:backing:defer:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	DragIndicator.swift	call to main actor-isolated initializer 'init(frame:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	call to main actor-isolated instance method 'addSubview' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	DragIndicator.swift	call to main actor-isolated instance method 'animator()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	call to main actor-isolated instance method 'orderFrontRegardless()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	DragIndicator.swift	call to main actor-isolated instance method 'orderOut' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	capture of 'self' with non-sendable type 'DragIndicator?' in a '@Sendable' closure
+4	DragIndicator.swift	main actor-isolated property 'alphaValue' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	main actor-isolated property 'backgroundColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	main actor-isolated property 'bounds' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	main actor-isolated property 'collectionBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	main actor-isolated property 'contentTintColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	main actor-isolated property 'contentView' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	main actor-isolated property 'hasShadow' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	main actor-isolated property 'ignoresMouseEvents' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	main actor-isolated property 'image' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	main actor-isolated property 'imageScaling' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	main actor-isolated property 'isOpaque' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	main actor-isolated property 'isVisible' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	main actor-isolated property 'layer' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	main actor-isolated property 'level' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	main actor-isolated property 'wantsLayer' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	DragIndicator.swift	passing non-sendable parameter 'work' to function expecting a @Sendable closure
+1	FocusFollowsCursor.swift	capture of 'self' with non-sendable type 'FocusFollowsCursor?' in a '@Sendable' closure
+1	HoldAnimationGallery.swift	call to main actor-isolated initializer 'init()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	call to main actor-isolated initializer 'init(contentRect:styleMask:backing:defer:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	call to main actor-isolated instance method 'close()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	call to main actor-isolated instance method 'displayIfNeeded()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	call to main actor-isolated instance method 'layoutSubtreeIfNeeded()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	call to main actor-isolated instance method 'makeKeyAndOrderFront' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	HoldAnimationGallery.swift	call to main actor-isolated instance method 'restartAll(at:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	call to main actor-isolated instance method 'setContentSize' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	call to main actor-isolated instance method 'setFrame(_:display:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	call to main actor-isolated instance method 'setSpeed' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+3	HoldAnimationGallery.swift	call to main actor-isolated instance method 'standardWindowButton' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	call to main actor-isolated instance method 'update(now:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	capture of 'self' with non-sendable type 'HoldAnimationGalleryController?' in a '@Sendable' closure
+1	HoldAnimationGallery.swift	converting function value of type '@MainActor (HoldPreviewStyle) -> HoldGalleryTileView' to '(HoldPreviewStyle) -> HoldGalleryTileView' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+3	HoldAnimationGallery.swift	main actor-isolated property 'action' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'animationBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'appearance' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'autoresizingMask' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'backgroundColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'collectionBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'contentView' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'contentView' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'delegate' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'frame' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'hasShadow' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'hidesOnDeactivate' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'isFloatingPanel' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+3	HoldAnimationGallery.swift	main actor-isolated property 'isHidden' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'isMovableByWindowBackground' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'isOpaque' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'isReleasedWhenClosed' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'level' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	HoldAnimationGallery.swift	main actor-isolated property 'needsDisplay' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'needsLayout' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'selectedSegment' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+3	HoldAnimationGallery.swift	main actor-isolated property 'target' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'title' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'titleVisibility' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldAnimationGallery.swift	main actor-isolated property 'titlebarAppearsTransparent' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	call to main actor-isolated initializer 'init(contentRect:styleMask:backing:defer:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+3	HoldProgressHUD.swift	call to main actor-isolated initializer 'init(frame:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	HoldProgressHUD.swift	call to main actor-isolated instance method 'addSubview' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	HoldProgressHUD.swift	call to main actor-isolated instance method 'animator()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	call to main actor-isolated instance method 'bitmapImageRepForCachingDisplay(in:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	call to main actor-isolated instance method 'cacheDisplay(in:to:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	call to main actor-isolated instance method 'displayIfNeeded()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	call to main actor-isolated instance method 'displayLink(target:selector:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	call to main actor-isolated instance method 'orderFrontRegardless()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+3	HoldProgressHUD.swift	call to main actor-isolated instance method 'orderOut' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+4	HoldProgressHUD.swift	capture of 'self' with non-sendable type 'HoldProgressHUD?' in a '@Sendable' closure
+1	HoldProgressHUD.swift	capture of 'surface' with non-sendable type 'HoldProgressHUD.Surface?' in a '@Sendable' closure
+4	HoldProgressHUD.swift	main actor-isolated property 'alphaValue' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	main actor-isolated property 'backgroundColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+9	HoldProgressHUD.swift	main actor-isolated property 'bounds' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	main actor-isolated property 'collectionBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+4	HoldProgressHUD.swift	main actor-isolated property 'contentTintColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	main actor-isolated property 'contentView' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	main actor-isolated property 'contentView' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	main actor-isolated property 'frame' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	main actor-isolated property 'hasShadow' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	main actor-isolated property 'ignoresMouseEvents' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+3	HoldProgressHUD.swift	main actor-isolated property 'image' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	main actor-isolated property 'imageScaling' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	main actor-isolated property 'isOpaque' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+21	HoldProgressHUD.swift	main actor-isolated property 'layer' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	main actor-isolated property 'level' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	main actor-isolated property 'superview' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+3	HoldProgressHUD.swift	main actor-isolated property 'wantsLayer' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	passing non-sendable parameter 'work' to function expecting a @Sendable closure
+1	HoldProgressHUD.swift	reference to captured var 'self' in concurrently-executing code
+1	HoldProgressHUD.swift	sending 'rep' risks causing data races; this is an error in the Swift 6 language mode
+2	HoldProgressHUD.swift	sending 'self' risks causing data races; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	sending 'surface' risks causing data races; this is an error in the Swift 6 language mode
+3	HoldProgressHUD.swift	sending value of non-Sendable type 'Any?' risks causing data races; this is an error in the Swift 6 language mode
+1	HoldProgressHUD.swift	sending value of non-Sendable type 'HoldProgressHUD' risks causing data races; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	call to main actor-isolated initializer 'init(contentRect:styleMask:backing:defer:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+4	LayerHUD.swift	call to main actor-isolated initializer 'init(frame:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	LayerHUD.swift	call to main actor-isolated initializer 'init(labelWithString:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+5	LayerHUD.swift	call to main actor-isolated instance method 'addSubview' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	LayerHUD.swift	call to main actor-isolated instance method 'animator()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	call to main actor-isolated instance method 'orderFrontRegardless()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+3	LayerHUD.swift	call to main actor-isolated instance method 'orderOut' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	capture of 'self' with non-sendable type 'LayerHUD?' in a '@Sendable' closure
+2	LayerHUD.swift	main actor-isolated property 'alignment' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+5	LayerHUD.swift	main actor-isolated property 'alphaValue' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	main actor-isolated property 'backgroundColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	LayerHUD.swift	main actor-isolated property 'bounds' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	main actor-isolated property 'collectionBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	main actor-isolated property 'contentTintColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	main actor-isolated property 'contentView' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	main actor-isolated property 'effectiveAppearance' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2	LayerHUD.swift	main actor-isolated property 'font' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	LayerHUD.swift	main actor-isolated property 'frame' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	main actor-isolated property 'hasShadow' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	main actor-isolated property 'ignoresMouseEvents' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	main actor-isolated property 'image' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	main actor-isolated property 'imageAlignment' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	main actor-isolated property 'imageScaling' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	main actor-isolated property 'isOpaque' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+14	LayerHUD.swift	main actor-isolated property 'layer' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	main actor-isolated property 'level' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	LayerHUD.swift	main actor-isolated property 'lineBreakMode' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	LayerHUD.swift	main actor-isolated property 'stringValue' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	LayerHUD.swift	main actor-isolated property 'textColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+6	LayerHUD.swift	main actor-isolated property 'wantsLayer' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	LayerHUD.swift	passing non-sendable parameter 'work' to function expecting a @Sendable closure
+3	LayerHUD.swift	sending value of non-Sendable type 'Any?' risks causing data races; this is an error in the Swift 6 language mode
+1	Localization.swift	static property 'shared' is not concurrency-safe because non-'Sendable' type 'Loc' may have shared mutable state; this is an error in the Swift 6 language mode
+1	MacActionExecutor.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'CoreGraphics'
+1	MacActionExecutor.swift	static property 'sharedSource' is not concurrency-safe because non-'Sendable' type 'CGEventSource?' may have shared mutable state; this is an error in the Swift 6 language mode
+1	MediaController.swift	capture of 'keyUp' with non-sendable type 'NSEvent?' in a '@Sendable' closure
+2	MediaKeyInterceptor.swift	capture of 'self' with non-sendable type 'MediaKeyInterceptor?' in a '@Sendable' closure
+1	MenuBarManager.swift	call to main actor-isolated instance method 'terminate' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+5	MenuBarManager.swift	capture of 'self' with non-sendable type 'MenuBarManager?' in a '@Sendable' closure
+1	MenuBarManager.swift	main actor-isolated property 'image' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	MenuBarManager.swift	main actor-isolated property 'title' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	MenuBarManager.swift	main actor-isolated var 'NSApp' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+4	MenuBarManager.swift	sending 'self' risks causing data races; this is an error in the Swift 6 language mode
+1	RemoteDetector.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'IOKit'
+2	RemoteDetector.swift	capture of 'device' with non-sendable type 'IOHIDDevice' in a '@Sendable' closure
+3	RemoteDetector.swift	capture of 'self' with non-sendable type 'RemoteDetector?' in a '@Sendable' closure
+2	RemoteDetector.swift	sending 'device' risks causing data races; this is an error in the Swift 6 language mode
+3	RemoteDetector.swift	sending 'self' risks causing data races; this is an error in the Swift 6 language mode
+1	RemoteInputHandler.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'IOKit'
+2	RemoteInputHandler.swift	capture of 'device' with non-sendable type 'IOHIDDevice' in a '@Sendable' closure
+2	RemoteInputHandler.swift	capture of 'self' with non-sendable type 'RemoteInputHandler?' in a '@Sendable' closure
+2	RemoteInputHandler.swift	sending 'device' risks causing data races; this is an error in the Swift 6 language mode
+2	RemoteInputHandler.swift	sending 'self' risks causing data races; this is an error in the Swift 6 language mode
+1	RemoteInputHandler.swift	static property 'inputGuardDeadlineNanos' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	RemoteInputHandler.swift	static property 'isAppWheelOpen' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	RemoteInputHandler.swift	static property 'lastProcessedButton' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	RemoteInputHandler.swift	static property 'lastProcessedTime' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	RemoteInputHandler.swift	static property 'touchGuardDeadlineNanos' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	RemoteInputHandler.swift	static property 'touchGuardDuration' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	call to main actor-isolated initializer 'init(contentViewController:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	call to main actor-isolated initializer 'init(model:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	call to main actor-isolated initializer 'init(rootView:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	call to main actor-isolated instance method 'activate(ignoringOtherApps:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	SettingsWindow.swift	call to main actor-isolated instance method 'center()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	call to main actor-isolated instance method 'makeKeyAndOrderFront' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	call to main actor-isolated instance method 'setContentSize' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	capture of 'self' with non-sendable type 'SettingsWindowController?' in a '@Sendable' closure
+1	SettingsWindow.swift	main actor-isolated property 'contentMinSize' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	SettingsWindow.swift	main actor-isolated property 'frame' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	main actor-isolated property 'isMovableByWindowBackground' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	main actor-isolated property 'isReleasedWhenClosed' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	main actor-isolated property 'screen' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	main actor-isolated property 'sizingOptions' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	main actor-isolated property 'styleMask' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	main actor-isolated property 'title' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	main actor-isolated property 'titleVisibility' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	main actor-isolated property 'titlebarAppearsTransparent' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	main actor-isolated var 'NSApp' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	SettingsWindow.swift	sending 'self.model' risks causing data races; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	call to main actor-isolated initializer 'init(contentViewController:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	call to main actor-isolated initializer 'init(model:onDone:onLanguageChosen:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	call to main actor-isolated initializer 'init(rootView:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	call to main actor-isolated instance method 'activate(ignoringOtherApps:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	call to main actor-isolated instance method 'center()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	call to main actor-isolated instance method 'close()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	call to main actor-isolated instance method 'makeKeyAndOrderFront' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	call to main actor-isolated instance method 'setContentSize' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	SetupWizard.swift	call to main actor-isolated instance method 'standardWindowButton' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	capture of 'self' with non-sendable type 'RemoteConnection' in a '@Sendable' closure
+4	SetupWizard.swift	capture of 'self' with non-sendable type 'SetupModel?' in a '@Sendable' closure
+1	SetupWizard.swift	capture of 'self' with non-sendable type 'SetupWizardController?' in a '@Sendable' closure
+1	SetupWizard.swift	main actor-isolated property 'frame' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	SetupWizard.swift	main actor-isolated property 'isHidden' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	main actor-isolated property 'isMovableByWindowBackground' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	main actor-isolated property 'isReleasedWhenClosed' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	main actor-isolated property 'maxSize' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	main actor-isolated property 'minSize' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	main actor-isolated property 'sizingOptions' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	main actor-isolated property 'styleMask' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	main actor-isolated property 'title' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	main actor-isolated property 'titleVisibility' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	main actor-isolated property 'titlebarAppearsTransparent' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	main actor-isolated property 'view' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	main actor-isolated var 'NSApp' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	sending 'model' risks causing data races; this is an error in the Swift 6 language mode
+3	SetupWizard.swift	sending 'self' risks causing data races; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	sending 'self.onLanguageChosen' risks causing data races; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	sending value of non-Sendable type '() -> Void' risks causing data races; this is an error in the Swift 6 language mode
+1	SetupWizard.swift	static property 'shared' is not concurrency-safe because non-'Sendable' type 'RemoteConnection' may have shared mutable state; this is an error in the Swift 6 language mode
+1	SiriRemoteApp.swift	capture of 'finish' with non-sendable type '() -> Void' in a '@Sendable' closure
+2	SiriRemoteApp.swift	capture of 'hud' with non-sendable type 'VoicePipelineHUDController' in a '@Sendable' closure
+3	SiriRemoteApp.swift	capture of 'self' with non-sendable type 'AppDelegate?' in a '@Sendable' closure
+3	SiriRemoteApp.swift	capture of 'widget' with non-sendable type 'StatusWidgetController' in a '@Sendable' closure
+1	SiriRemoteApp.swift	converting non-sendable function value to '@MainActor @Sendable @convention(block) () -> Void' may introduce data races
+3	SiriRemoteApp.swift	sending 'hud' risks causing data races; this is an error in the Swift 6 language mode
+3	SiriRemoteApp.swift	sending 'self' risks causing data races; this is an error in the Swift 6 language mode
+2	SiriRemoteApp.swift	sending 'widget' risks causing data races; this is an error in the Swift 6 language mode
+1	SiriRemoteApp.swift	static property 'suspended' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	Spaces.swift	converting non-sendable function value to '@MainActor @Sendable @convention(block) () -> Void' may introduce data races
+1	StatusWidget.swift	call to main actor-isolated initializer 'init(contentRect:styleMask:backing:defer:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+14	StatusWidget.swift	call to main actor-isolated initializer 'init(frame:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+4	StatusWidget.swift	call to main actor-isolated initializer 'init(labelWithString:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+25	StatusWidget.swift	call to main actor-isolated instance method 'addSubview' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	StatusWidget.swift	call to main actor-isolated instance method 'addSymbolEffect(_:options:animated:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	StatusWidget.swift	call to main actor-isolated instance method 'animator()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	call to main actor-isolated instance method 'bitmapImageRepForCachingDisplay(in:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	call to main actor-isolated instance method 'cacheDisplay(in:to:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+5	StatusWidget.swift	call to main actor-isolated instance method 'orderFrontRegardless()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	StatusWidget.swift	call to main actor-isolated instance method 'orderOut' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	call to main actor-isolated instance method 'removeAllSymbolEffects(options:animated:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+9	StatusWidget.swift	call to main actor-isolated instance method 'removeFromSuperview()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	capture of 'face' with non-sendable type 'StatusWidgetController.Face' in a '@Sendable' closure
+1	StatusWidget.swift	capture of 'newImage' with non-sendable type 'NSImage' in a '@Sendable' closure
+1	StatusWidget.swift	capture of 'root' with non-sendable type 'CALayer?' in a '@Sendable' closure
+18	StatusWidget.swift	capture of 'self' with non-sendable type 'StatusWidgetController?' in a '@Sendable' closure
+2	StatusWidget.swift	main actor-isolated property 'alignment' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'alignment' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+10	StatusWidget.swift	main actor-isolated property 'alphaValue' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+3	StatusWidget.swift	main actor-isolated property 'alphaValue' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'animationBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'appearanceDidChange' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+3	StatusWidget.swift	main actor-isolated property 'attributedStringValue' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'backgroundColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+4	StatusWidget.swift	main actor-isolated property 'backgroundStyle' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	StatusWidget.swift	main actor-isolated property 'backingScaleFactor' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'blendingMode' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+81	StatusWidget.swift	main actor-isolated property 'bounds' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+4	StatusWidget.swift	main actor-isolated property 'cell' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'collectionBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+6	StatusWidget.swift	main actor-isolated property 'contentTintColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+4	StatusWidget.swift	main actor-isolated property 'contentTintColor' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'contentView' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'delegate' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+5	StatusWidget.swift	main actor-isolated property 'effectiveAppearance' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+4	StatusWidget.swift	main actor-isolated property 'font' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+6	StatusWidget.swift	main actor-isolated property 'font' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+11	StatusWidget.swift	main actor-isolated property 'frame' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+28	StatusWidget.swift	main actor-isolated property 'frame' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'hasShadow' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'hidesOnDeactivate' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+6	StatusWidget.swift	main actor-isolated property 'image' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+4	StatusWidget.swift	main actor-isolated property 'image' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+3	StatusWidget.swift	main actor-isolated property 'imageAlignment' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'imageAlignment' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+3	StatusWidget.swift	main actor-isolated property 'imageScaling' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'imageScaling' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2	StatusWidget.swift	main actor-isolated property 'interiorBackgroundStyle' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'isFloatingPanel' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'isMovableByWindowBackground' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'isOpaque' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'isReleasedWhenClosed' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+4	StatusWidget.swift	main actor-isolated property 'layer' can not be referenced from a nonisolated autoclosure; this is an error in the Swift 6 language mode
+148	StatusWidget.swift	main actor-isolated property 'layer' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'level' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+4	StatusWidget.swift	main actor-isolated property 'lineBreakMode' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'lineBreakMode' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'material' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+4	StatusWidget.swift	main actor-isolated property 'maximumNumberOfLines' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'maximumNumberOfLines' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	main actor-isolated property 'state' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+10	StatusWidget.swift	main actor-isolated property 'stringValue' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+4	StatusWidget.swift	main actor-isolated property 'stringValue' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2	StatusWidget.swift	main actor-isolated property 'subviews' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+10	StatusWidget.swift	main actor-isolated property 'textColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	StatusWidget.swift	main actor-isolated property 'textColor' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+17	StatusWidget.swift	main actor-isolated property 'wantsLayer' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	passing non-sendable parameter 'work' to function expecting a @Sendable closure
+1	StatusWidget.swift	sending 'bitmap' risks causing data races; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	sending 'face' risks causing data races; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	sending 'newImage' risks causing data races; this is an error in the Swift 6 language mode
+1	StatusWidget.swift	sending 'root' risks causing data races; this is an error in the Swift 6 language mode
+14	StatusWidget.swift	sending 'self' risks causing data races; this is an error in the Swift 6 language mode
+3	SystemControlState.swift	capture of 'completion' with non-sendable type '(ControlVisualState?) -> Void' in a '@Sendable' closure
+1	SystemControlState.swift	sending 'completion' risks causing data races; this is an error in the Swift 6 language mode
+1	SystemControlState.swift	static property 'cachedBrightness' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	SystemControlState.swift	static property 'cachedVolume' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+3	SystemReadiness.swift	capture of 'completion' with non-sendable type '(AutomationPermissionState) -> Void' in a '@Sendable' closure
+1	SystemReadiness.swift	passing non-sendable parameter 'completion' to function expecting a @Sendable closure
+1	SystemReadiness.swift	reference to var 'kAXTrustedCheckOptionPrompt' is not concurrency-safe because it involves shared mutable state; this is an error in the Swift 6 language mode
+1	SystemReadiness.swift	sending 'completion' risks causing data races; this is an error in the Swift 6 language mode
+1	ThinkingOrbCanvasView.swift	call to main actor-isolated instance method 'advanceFrame()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	ThinkingOrbCanvasView.swift	call to main actor-isolated instance method 'stopAnimating()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	TouchHandler.swift	capture of 'doScan' with non-sendable type '() -> ()?' in a '@Sendable' closure
+12	TouchHandler.swift	capture of 'self' with non-sendable type 'TouchHandler?' in a '@Sendable' closure
+1	TouchHandler.swift	capture of 'sink' with non-sendable type '([TouchSnapshot]) -> Void' in a '@Sendable' closure
+1	TouchHandler.swift	sending 'doScan' risks causing data races; this is an error in the Swift 6 language mode
+9	TouchHandler.swift	sending 'self' risks causing data races; this is an error in the Swift 6 language mode
+1	TouchHandler.swift	sending 'sink' risks causing data races; this is an error in the Swift 6 language mode
+1	TouchHandler.swift	static property 'dumpCount' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	TouchHandler.swift	static property 'zCount' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	TouchMonitor.swift	call to main actor-isolated initializer 'init(contentRect:styleMask:backing:defer:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	TouchMonitor.swift	call to main actor-isolated initializer 'init(rootView:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	TouchMonitor.swift	call to main actor-isolated instance method 'activate(ignoringOtherApps:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	TouchMonitor.swift	call to main actor-isolated instance method 'center()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	TouchMonitor.swift	call to main actor-isolated instance method 'makeKeyAndOrderFront' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	TouchMonitor.swift	main actor-isolated property 'contentView' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	TouchMonitor.swift	main actor-isolated property 'isReleasedWhenClosed' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	TouchMonitor.swift	main actor-isolated property 'title' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	TouchMonitor.swift	main actor-isolated var 'NSApp' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceAudioCapture.swift	capture of 'onMaximumDuration' with non-sendable type '() -> Void' in a '@Sendable' closure
+1	VoiceAudioCapture.swift	capture of 'onMinimumDurationReached' with non-sendable type '() -> Void' in a '@Sendable' closure
+1	VoiceCredentials.swift	capture of 'completion' with non-sendable type '() -> Void' in a '@Sendable' closure
+4	VoiceCredentials.swift	capture of 'completion' with non-sendable type '(String?) -> Void' in a '@Sendable' closure
+6	VoiceCredentials.swift	capture of 'self' with non-sendable type 'VoiceCredentialModel?' in a '@Sendable' closure
+1	VoiceCredentials.swift	passing non-sendable parameter 'completion' to function expecting a @Sendable closure
+3	VoiceCredentials.swift	reference to captured var 'self' in concurrently-executing code
+1	VoiceCredentials.swift	static property 'cached' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	VoiceCredentials.swift	static property 'confirmedMissing' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	VoiceCredentials.swift	static property 'loadedAll' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	VoiceCredentials.swift	static property 'mutationGeneration' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	VoiceCredentials.swift	static property 'resolvedStorageBackend' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	VoiceCredentials.swift	static property 'shared' is not concurrency-safe because non-'Sendable' type 'LocalJSONCredentialStore' may have shared mutable state; this is an error in the Swift 6 language mode
+1	VoiceCredentials.swift	static property 'shared' is not concurrency-safe because non-'Sendable' type 'VoiceCredentialBrokerClient' may have shared mutable state; this is an error in the Swift 6 language mode
+1	VoiceDictationCoordinator.swift	sending value of non-Sendable type '() async -> ()' risks causing data races; this is an error in the Swift 6 language mode
+2	VoiceDictationCoordinator.swift	sending value of non-Sendable type '(String) async -> ()' risks causing data races; this is an error in the Swift 6 language mode
+1	VoiceHistory.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'ApplicationServices'
+1	VoiceHistory.swift	capture of 'element' with non-sendable type 'AXUIElement' in a '@Sendable' closure
+1	VoiceHistory.swift	capture of 'onCorrection' with non-sendable type '(String) -> Void' in a '@Sendable' closure
+1	VoiceOrbHUD.swift	call to main actor-isolated initializer 'init(contentRect:styleMask:backing:defer:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	VoiceOrbHUD.swift	call to main actor-isolated initializer 'init(frame:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	call to main actor-isolated initializer 'init(frame:orbCentre:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	VoiceOrbHUD.swift	call to main actor-isolated instance method 'addSubview' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	call to main actor-isolated instance method 'advanceFrame()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	VoiceOrbHUD.swift	call to main actor-isolated instance method 'animator()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	call to main actor-isolated instance method 'bitmapImageRepForCachingDisplay(in:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	call to main actor-isolated instance method 'cacheDisplay(in:to:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	VoiceOrbHUD.swift	call to main actor-isolated instance method 'cancelReverseEntranceExit()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+3	VoiceOrbHUD.swift	call to main actor-isolated instance method 'finishAudio()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	call to main actor-isolated instance method 'ingest' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	call to main actor-isolated instance method 'isRenderingModeSymbolForTesting()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	call to main actor-isolated instance method 'layoutSubtreeIfNeeded()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+5	VoiceOrbHUD.swift	call to main actor-isolated instance method 'orderFrontRegardless()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	VoiceOrbHUD.swift	call to main actor-isolated instance method 'orderOut' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	call to main actor-isolated instance method 'prepareEntrance()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	call to main actor-isolated instance method 'prepareReverseEntranceExit()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	call to main actor-isolated instance method 'relocalize()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	VoiceOrbHUD.swift	call to main actor-isolated instance method 'resetAudio()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	call to main actor-isolated instance method 'setModeSymbol(_:state:animated:beginWithListeningOrb:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+3	VoiceOrbHUD.swift	call to main actor-isolated instance method 'setParticlesHidden' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	call to main actor-isolated instance method 'setSphereRadius' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+3	VoiceOrbHUD.swift	call to main actor-isolated instance method 'setState(_:animated:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+6	VoiceOrbHUD.swift	call to main actor-isolated instance method 'setTint(_:animated:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	call to main actor-isolated instance method 'startAnimating()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+4	VoiceOrbHUD.swift	call to main actor-isolated instance method 'stopAnimating()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+6	VoiceOrbHUD.swift	capture of 'self' with non-sendable type 'VoicePipelineHUDController?' in a '@Sendable' closure
+7	VoiceOrbHUD.swift	main actor-isolated property 'alphaValue' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'alphaValue' can not be referenced from a nonisolated autoclosure; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'animationBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	VoiceOrbHUD.swift	main actor-isolated property 'autoresizingMask' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'backgroundColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+4	VoiceOrbHUD.swift	main actor-isolated property 'bounds' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'collectionBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'contentView' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'contentView' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'delegate' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+4	VoiceOrbHUD.swift	main actor-isolated property 'frame' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'hasShadow' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'hidesOnDeactivate' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'isMovableByWindowBackground' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'isOpaque' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'isReleasedWhenClosed' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+3	VoiceOrbHUD.swift	main actor-isolated property 'isVisible' can not be referenced from a nonisolated autoclosure; this is an error in the Swift 6 language mode
+2	VoiceOrbHUD.swift	main actor-isolated property 'isVisible' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+5	VoiceOrbHUD.swift	main actor-isolated property 'layer' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'level' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'onVisualRadiusChange' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	main actor-isolated property 'wantsLayer' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoiceOrbHUD.swift	passing non-sendable parameter 'block' to function expecting a @Sendable closure
+1	VoiceOrbHUD.swift	sending 'bitmap' risks causing data races; this is an error in the Swift 6 language mode
+2	VoiceOrbHUD.swift	sending 'self' risks causing data races; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	call to main actor-isolated initializer 'init(contentRect:styleMask:backing:defer:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+3	VoicePipelineHUD.swift	call to main actor-isolated initializer 'init(frame:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	VoicePipelineHUD.swift	call to main actor-isolated instance method 'addSubview' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+3	VoicePipelineHUD.swift	call to main actor-isolated instance method 'animator()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+5	VoicePipelineHUD.swift	call to main actor-isolated instance method 'orderFrontRegardless()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+2	VoicePipelineHUD.swift	call to main actor-isolated instance method 'orderOut' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	capture of 'old' with non-sendable type 'CATextLayer?' in a '@Sendable' closure
+7	VoicePipelineHUD.swift	capture of 'self' with non-sendable type 'LegacyVoicePipelineHUDController?' in a '@Sendable' closure
+1	VoicePipelineHUD.swift	converting non-sendable function value to '@MainActor @Sendable @convention(block) () -> Void' may introduce data races
+8	VoicePipelineHUD.swift	main actor-isolated property 'alphaValue' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	VoicePipelineHUD.swift	main actor-isolated property 'alphaValue' can not be referenced from a nonisolated autoclosure; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'animationBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'appearanceDidChange' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'backgroundColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'blendingMode' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+11	VoicePipelineHUD.swift	main actor-isolated property 'bounds' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'collectionBehavior' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'contentTintColor' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'contentView' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'delegate' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'effectiveAppearance' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+9	VoicePipelineHUD.swift	main actor-isolated property 'frame' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'hasShadow' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'hidesOnDeactivate' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'image' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'imageScaling' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'isMovableByWindowBackground' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'isOpaque' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'isReleasedWhenClosed' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+2	VoicePipelineHUD.swift	main actor-isolated property 'isVisible' can not be referenced from a nonisolated autoclosure; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'layer' can not be referenced from a nonisolated autoclosure; this is an error in the Swift 6 language mode
+24	VoicePipelineHUD.swift	main actor-isolated property 'layer' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'level' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'material' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'screen' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	main actor-isolated property 'state' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+3	VoicePipelineHUD.swift	main actor-isolated property 'wantsLayer' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
+1	VoicePipelineHUD.swift	passing non-sendable parameter 'block' to function expecting a @Sendable closure
+1	VoicePipelineHUD.swift	sending 'old' risks causing data races; this is an error in the Swift 6 language mode
+3	VoicePipelineHUD.swift	sending 'self' risks causing data races; this is an error in the Swift 6 language mode
+1	VoiceTextDelivery.swift	capture of 'operation' with non-sendable type '() -> T' in a '@Sendable' closure
+1	VoiceTextProcessing.swift	static property 'cache' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
+1	VoiceTranscriptionClient.swift	passing closure as a 'sending' parameter risks causing data races between code in the current task and concurrent execution of the closure; this is an error in the Swift 6 language mode
+1	WindowControl.swift	static property 'attribute' is not concurrency-safe because non-'Sendable' type 'CFString' may have shared mutable state; this is an error in the Swift 6 language mode
+1	WindowControl.swift	static property 'minimizedAttribute' is not concurrency-safe because non-'Sendable' type 'CFString' may have shared mutable state; this is an error in the Swift 6 language mode
