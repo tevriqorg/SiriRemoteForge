@@ -310,6 +310,9 @@ final class VoiceCorpusRecorder {
     private let fileManager: FileManager
     let rootURL: URL
     private let ioQueue = DispatchQueue(label: "com.hypervibe.voice-corpus", qos: .utility)
+    /// Marks work already executing on `ioQueue`, so the termination drain below can run inline
+    /// instead of deadlocking on `ioQueue.sync` (queue waiting on itself).
+    private let ioQueueKey = DispatchSpecificKey<Void>()
     private let onStorageStatus: (String?) -> Void
     private var active: Session?
     private var clipboardWatchGeneration = 0
@@ -340,6 +343,7 @@ final class VoiceCorpusRecorder {
         self.rootURL = rootURL ?? base
             .appendingPathComponent("HyperVibe", isDirectory: true)
             .appendingPathComponent("Corpus", isDirectory: true)
+        ioQueue.setSpecific(key: ioQueueKey, value: ())
     }
 
     var isRecording: Bool { active != nil }
@@ -806,6 +810,16 @@ final class VoiceCorpusRecorder {
         }
     }
 
+    /// Run `work` with the queue drained. Executes inline when already on `ioQueue` so a caller on
+    /// that queue can never deadlock by synchronising onto itself; otherwise waits for the queue.
+    private func drainIOQueueAndRun(_ work: () -> Void) {
+        if DispatchQueue.getSpecific(key: ioQueueKey) != nil {
+            work()
+        } else {
+            ioQueue.sync(execute: work)
+        }
+    }
+
     /// Best-effort process-shutdown flush. Device teardown normally closes a held shortcut first,
     /// but the ordinary corpus writer is asynchronous; waiting for this queue and synchronously
     /// draining the capture prevents a quit/relaunch immediately after release from losing the raw
@@ -818,7 +832,7 @@ final class VoiceCorpusRecorder {
             let endedAt = Date()
             session.endedAt = endedAt
             let audio = session.capture.stopBlockingForTermination()
-            ioQueue.sync {
+            drainIOQueueAndRun {
                 let storage = session.audioSpool.finalize(
                     sampleRate: audio.sampleRate,
                     expectedFrameCount: audio.frameCount
@@ -833,7 +847,7 @@ final class VoiceCorpusRecorder {
             pendingObservation = nil
             let endedAt = session.endedAt ?? Date()
             let audio = session.capture.stopBlockingForTermination()
-            ioQueue.sync {
+            drainIOQueueAndRun {
                 let storage = session.audioSpool.finalize(
                     sampleRate: audio.sampleRate,
                     expectedFrameCount: audio.frameCount
@@ -847,7 +861,7 @@ final class VoiceCorpusRecorder {
             }
         } else {
             // Wait behind any already-enqueued corpus writes before the process exits.
-            ioQueue.sync {}
+            drainIOQueueAndRun {}
         }
     }
 

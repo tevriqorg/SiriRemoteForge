@@ -211,6 +211,12 @@ class TouchHandler {
     private let reconnectInterval: TimeInterval = 2.0
     private let idleTimeout: TimeInterval = 90.0
     private let touchStarvationThreshold: TimeInterval = 15.0
+    /// Guards the idle-starvation restart so it fires at most ONCE per quiet period. A running
+    /// MTDevice that simply has no contact frames is normal idle, not a fault, so the original
+    /// unconditional restart tore the surface down and re-armed it every window (~16 s) forever:
+    /// that cut the first frames of the next gesture and did needless main-thread MTDeviceStop/Start
+    /// work while the remote was simply not being touched. Re-armed only by a real touch frame.
+    private var starvationRestartArmed = false
 
     init(cursorController: CursorController) {
         self.cursorController = cursorController
@@ -383,14 +389,22 @@ class TouchHandler {
         let knownIDs = Set(devices.keys)
         let hasStoppedDevice = devices.values.contains { !MTDeviceIsRunning($0) }
 
-        // Reconcile immediately when a second surface appears or one disappears. If all known
-        // surfaces have been silent long enough, restart the set to recover from remote sleep.
+        // Reconcile immediately when a second surface appears or one disappears.
         if liveRemoteIDs != knownIDs || hasStoppedDevice || devices.isEmpty {
             findAndReconcileDevices(logInventory: true)
         } else if timeSinceLastTouch > touchStarvationThreshold
                     || (timeSinceLastTouch > idleTimeout && listed.count > 1) {
-            stopAllDevices()
-            findAndReconcileDevices(logInventory: true)
+            // Recover a surface that stopped delivering after remote sleep — but at most ONCE per
+            // quiet period. The device is present and reports as running, so this cannot be told
+            // apart from ordinary idle; restarting on every window re-armed the surface ~every 16 s
+            // without new information. Wait for the next real touch before allowing another restart.
+            if !starvationRestartArmed {
+                starvationRestartArmed = true
+                let quiet = String(format: "%.1f", timeSinceLastTouch)
+                rmDebug("📱 touch surface quiet " + quiet + "s — one recovery restart")
+                stopAllDevices()
+                findAndReconcileDevices(logInventory: true)
+            }
         }
     }
     
@@ -436,6 +450,9 @@ class TouchHandler {
         defer { touchStateLock.unlock() }
 
         if count > 0 {
+            // A real contact frame ends the quiet period: re-arm the single-shot starvation
+            // recovery so the NEXT sleep can be recovered again, without restarting on every window.
+            starvationRestartArmed = false
             if activeTouchDevice.beginOrContinue(sourceID) {
                 // Switching surfaces is ownership transfer, not a lift from the prior surface.
                 // Cancel its partial tap/swipe/scroll without firing an action, then let this frame
