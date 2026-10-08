@@ -1,10 +1,8 @@
 # Swift concurrency closeout audit
 
 ## SiriRemoteCore diagnostics
-core-strict.log:/Users/runner/work/SiriRemoteForge/SiriRemoteForge/SiriRemoteCore/Sources/SiriRemoteCore/CircularScroll.swift:68:23: warning: static property 'default' is not concurrency-safe because non-'Sendable' type 'CircularScrollConfig' may have shared mutable state; this is an error in the Swift 6 language mode
 
 ## App diagnostics
-../SiriRemoteCore/Sources/SiriRemoteCore/CircularScroll.swift:68:23: warning: static property 'default' is not concurrency-safe because non-'Sendable' type 'CircularScrollConfig' may have shared mutable state; this is an error in the Swift 6 language mode
 ActionSymbolStyle.swift:293:19: warning: call to main actor-isolated instance method 'removeAllSymbolEffects(options:animated:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
 ActionSymbolStyle.swift:296:23: warning: call to main actor-isolated instance method 'setSymbolImage(_:contentTransition:options:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
 ActionSymbolStyle.swift:296:23: warning: sending 'image' risks causing data races; this is an error in the Swift 6 language mode
@@ -474,8 +472,6 @@ RemoteDetector.swift:230:59: warning: capture of 'device' with non-sendable type
 RemoteDetector.swift:230:59: warning: sending 'device' risks causing data races; this is an error in the Swift 6 language mode
 RemoteDetector.swift:9:1: warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'IOKit'
 RemoteInputHandler.swift:224:16: warning: static property 'isAppWheelOpen' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
-RemoteInputHandler.swift:397:24: warning: static property 'selectTapPresentation' is not concurrency-safe because non-'Sendable' type 'Config.Presentation' may have shared mutable state; this is an error in the Swift 6 language mode
-RemoteInputHandler.swift:399:24: warning: static property 'selectDragPresentation' is not concurrency-safe because non-'Sendable' type 'Config.Presentation' may have shared mutable state; this is an error in the Swift 6 language mode
 RemoteInputHandler.swift:407:16: warning: static property 'lastProcessedButton' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
 RemoteInputHandler.swift:408:16: warning: static property 'lastProcessedTime' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
 RemoteInputHandler.swift:418:24: warning: static property 'inputGuardDeadlineNanos' is not concurrency-safe because it is nonisolated global shared mutable state; this is an error in the Swift 6 language mode
@@ -550,11 +546,8 @@ SetupWizard.swift:98:15: warning: call to main actor-isolated instance method 'a
 SetupWizard.swift:98:9: warning: main actor-isolated var 'NSApp' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
 SetupWizard.swift:99:17: warning: call to main actor-isolated instance method 'makeKeyAndOrderFront' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
 SiriRemoteApp.swift:1862:23: warning: sending 'self' risks causing data races; this is an error in the Swift 6 language mode
-SiriRemoteApp.swift:1914:37: warning: capture of 'entries' with non-sendable type '[Config.DictationTerm]' in a '@Sendable' closure
 SiriRemoteApp.swift:1924:27: warning: sending 'self' risks causing data races; this is an error in the Swift 6 language mode
-SiriRemoteApp.swift:1927:21: warning: sending 'settings' risks causing data races; this is an error in the Swift 6 language mode
 SiriRemoteApp.swift:1943:13: warning: sending 'self' risks causing data races; this is an error in the Swift 6 language mode
-SiriRemoteApp.swift:1944:17: warning: sending 'settings' risks causing data races; this is an error in the Swift 6 language mode
 SiriRemoteApp.swift:2236:13: warning: capture of 'self' with non-sendable type 'AppDelegate?' in a '@Sendable' closure
 SiriRemoteApp.swift:2244:30: warning: capture of 'self' with non-sendable type 'AppDelegate?' in a '@Sendable' closure
 SiriRemoteApp.swift:2250:30: warning: capture of 'self' with non-sendable type 'AppDelegate?' in a '@Sendable' closure
@@ -566,11 +559,8 @@ SiriRemoteApp.swift:406:33: warning: sending 'hud' risks causing data races; thi
 SiriRemoteApp.swift:410:33: warning: sending 'hud' risks causing data races; this is an error in the Swift 6 language mode
 SiriRemoteApp.swift:414:33: warning: sending 'hud' risks causing data races; this is an error in the Swift 6 language mode
 SiriRemoteApp.swift:516:29: warning: capture of 'widget' with non-sendable type 'StatusWidgetController' in a '@Sendable' closure
-SiriRemoteApp.swift:516:61: warning: capture of 'action' with non-sendable type 'Controller.HandledAction' in a '@Sendable' closure
 SiriRemoteApp.swift:552:37: warning: capture of 'widget' with non-sendable type 'StatusWidgetController' in a '@Sendable' closure
-SiriRemoteApp.swift:552:69: warning: capture of 'action' with non-sendable type 'Controller.HandledAction' in a '@Sendable' closure
 SiriRemoteApp.swift:584:29: warning: capture of 'widget' with non-sendable type 'StatusWidgetController' in a '@Sendable' closure
-SiriRemoteApp.swift:584:67: warning: capture of 'action' with non-sendable type 'Controller.HandledAction' in a '@Sendable' closure
 SiriRemoteApp.swift:589:33: warning: sending 'widget' risks causing data races; this is an error in the Swift 6 language mode
 SiriRemoteApp.swift:594:33: warning: sending 'widget' risks causing data races; this is an error in the Swift 6 language mode
 SiriRemoteApp.swift:666:64: warning: converting non-sendable function value to '@MainActor @Sendable @convention(block) () -> Void' may introduce data races
@@ -692,9 +682,6 @@ StatusWidget.swift:2043:41: warning: capture of 'newImage' with non-sendable typ
 StatusWidget.swift:2043:41: warning: sending 'newImage' risks causing data races; this is an error in the Swift 6 language mode
 StatusWidget.swift:2109:27: warning: capture of 'self' with non-sendable type 'StatusWidgetController?' in a '@Sendable' closure
 StatusWidget.swift:2109:27: warning: sending 'self' risks causing data races; this is an error in the Swift 6 language mode
-StatusWidget.swift:2113:46: warning: capture of 'handled' with non-sendable type 'Controller.HandledAction' in a '@Sendable' closure
-StatusWidget.swift:2113:46: warning: sending 'handled' risks causing data races; this is an error in the Swift 6 language mode
-StatusWidget.swift:2119:50: warning: capture of 'handled' with non-sendable type 'Controller.HandledAction' in an isolated closure; this is an error in the Swift 6 language mode
 StatusWidget.swift:2163:27: warning: capture of 'self' with non-sendable type 'StatusWidgetController?' in a '@Sendable' closure
 StatusWidget.swift:2163:27: warning: sending 'self' risks causing data races; this is an error in the Swift 6 language mode
 StatusWidget.swift:2171:37: warning: capture of 'face' with non-sendable type 'StatusWidgetController.Face' in a '@Sendable' closure
@@ -1154,9 +1141,8 @@ TouchMonitor.swift:228:11: warning: main actor-isolated property 'isReleasedWhen
 TouchMonitor.swift:230:11: warning: call to main actor-isolated instance method 'makeKeyAndOrderFront' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
 TouchMonitor.swift:231:15: warning: call to main actor-isolated instance method 'activate(ignoringOtherApps:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
 TouchMonitor.swift:231:9: warning: main actor-isolated var 'NSApp' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
-TuneSettings.swift:57:16: warning: static property 'default' is not concurrency-safe because non-'Sendable' type 'TuneSettings' may have shared mutable state; this is an error in the Swift 6 language mode
-VoiceAudioCapture.swift:210:63: warning: capture of 'onMaximumDuration' with non-sendable type '() -> Void' in a '@Sendable' closure
-VoiceAudioCapture.swift:367:13: warning: capture of 'onMinimumDurationReached' with non-sendable type '() -> Void' in a '@Sendable' closure
+VoiceAudioCapture.swift:219:63: warning: capture of 'onMaximumDuration' with non-sendable type '() -> Void' in a '@Sendable' closure
+VoiceAudioCapture.swift:376:13: warning: capture of 'onMinimumDurationReached' with non-sendable type '() -> Void' in a '@Sendable' closure
 VoiceCredentials.swift:113:47: warning: capture of 'completion' with non-sendable type '() -> Void' in a '@Sendable' closure
 VoiceCredentials.swift:113:47: warning: passing non-sendable parameter 'completion' to function expecting a @Sendable closure
 VoiceCredentials.swift:244:16: warning: static property 'shared' is not concurrency-safe because non-'Sendable' type 'LocalJSONCredentialStore' may have shared mutable state; this is an error in the Swift 6 language mode
@@ -1219,9 +1205,7 @@ VoiceDictationCoordinator.swift:667:38: warning: non-sendable type 'Task<VoiceRe
 VoiceDictationCoordinator.swift:667:60: warning: non-sendable type 'VoiceRealtimeTranscriptionSession' of nonisolated property 'value' cannot be sent to main actor-isolated context; this is an error in the Swift 6 language mode
 VoiceDictationCoordinator.swift:667:60: warning: type 'VoiceRealtimeTranscriptionSession' does not conform to the 'Sendable' protocol; this is an error in the Swift 6 language mode
 VoiceDictationCoordinator.swift:814:42: warning: sending 'self.processor' risks causing data races; this is an error in the Swift 6 language mode
-VoiceDictationCoordinator.swift:814:42: warning: sending 'session.settings' risks causing data races; this is an error in the Swift 6 language mode
 VoiceDictationCoordinator.swift:896:47: warning: sending 'self.processor' risks causing data races; this is an error in the Swift 6 language mode
-VoiceDictationCoordinator.swift:896:47: warning: sending 'session.settings' risks causing data races; this is an error in the Swift 6 language mode
 VoiceDictationCoordinator.swift:969:40: warning: non-sendable type 'Task<VoiceRealtimeTranscriptionSession, any Error>' cannot exit main actor-isolated context in call to nonisolated property 'value'; this is an error in the Swift 6 language mode
 VoiceDictationCoordinator.swift:969:62: warning: non-sendable type 'VoiceRealtimeTranscriptionSession' of nonisolated property 'value' cannot be sent to main actor-isolated context; this is an error in the Swift 6 language mode
 VoiceDictationCoordinator.swift:969:62: warning: type 'VoiceRealtimeTranscriptionSession' does not conform to the 'Sendable' protocol; this is an error in the Swift 6 language mode
@@ -1234,8 +1218,8 @@ VoiceDictationCoordinator.swift:999:39: warning: type 'VoiceRealtimeTranscriptio
 VoiceFeedbackSound.swift:39:23: warning: capture of 'self' with non-sendable type 'VoiceFeedbackSound?' in a '@Sendable' closure
 VoiceFeedbackSound.swift:60:32: warning: capture of 'self' with non-sendable type 'VoiceFeedbackSound?' in a '@Sendable' closure
 VoiceHistory.swift:10:1: warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'ApplicationServices'
-VoiceHistory.swift:289:44: warning: capture of 'element' with non-sendable type 'AXUIElement' in a '@Sendable' closure
-VoiceHistory.swift:314:21: warning: capture of 'onCorrection' with non-sendable type '(String) -> Void' in a '@Sendable' closure
+VoiceHistory.swift:298:44: warning: capture of 'element' with non-sendable type 'AXUIElement' in a '@Sendable' closure
+VoiceHistory.swift:323:21: warning: capture of 'onCorrection' with non-sendable type '(String) -> Void' in a '@Sendable' closure
 VoiceOrbHUD.swift:1002:17: warning: call to main actor-isolated instance method 'setState(_:animated:)' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
 VoiceOrbHUD.swift:1012:19: warning: main actor-isolated property 'alphaValue' can not be mutated from a nonisolated context; this is an error in the Swift 6 language mode
 VoiceOrbHUD.swift:1014:15: warning: call to main actor-isolated instance method 'orderFrontRegardless()' in a synchronous nonisolated context; this is an error in the Swift 6 language mode
@@ -1464,7 +1448,7 @@ app/CorpusRecorder.swift:18:private final class VoiceCorpusWAVSpool: @unchecked 
 app/CorpusRecorder.swift:250:    private final class CapturePersistence: @unchecked Sendable {
 app/VoiceAudioCapture.swift:60:final class VoiceAudioCaptureSession: @unchecked Sendable {
 app/VoiceDictationCoordinator.swift:119:final class VoiceRealtimeEventRouter: @unchecked Sendable {
-app/VoiceHistory.swift:260:final class VoiceCorrectionMonitor: @unchecked Sendable {
+app/VoiceHistory.swift:269:final class VoiceCorrectionMonitor: @unchecked Sendable {
 app/VoiceHistory.swift:69:final class VoiceHistoryStore: @unchecked Sendable {
 app/VoiceInputSelfTest.swift:25:    private final class DeltaTiming: @unchecked Sendable {
 app/VoiceTextDelivery.swift:18:struct VoiceTextTarget: @unchecked Sendable {
@@ -1473,8 +1457,4 @@ app/VoiceTextDelivery.swift:225:private final class VoiceTextDeliveryWorker: @un
 ## synchronous queue hops
 app/BuiltinMicFeeder.swift:149:        remoteDemandQueue.sync { publishRemoteDemand(false) }
 app/TouchHandler.swift:808:        // `DispatchQueue.main.sync` was the main source of cursor stutter).
-app/VoiceAudioCapture.swift:169:        queue.sync { stopOnQueue() }
-app/VoiceHistory.swift:150:        queue.sync { [self] in
-app/VoiceHistory.swift:168:    func flush() { queue.sync {} }
-app/VoiceHistory.swift:171:        queue.sync { [self] in
 app/VoiceTextDelivery.swift:438:            return DispatchQueue.main.sync {
