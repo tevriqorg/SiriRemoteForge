@@ -16,6 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Temporary closeout audit: removed before the final PR.
       - name: Capture concurrency inventory
         run: |
           set -euo pipefail
