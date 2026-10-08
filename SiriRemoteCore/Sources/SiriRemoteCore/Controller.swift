@@ -7,7 +7,7 @@ public protocol ActionExecutor: AnyObject {
 public final class Controller {
     /// A binding that resolved successfully and is about to be handled. App-level presentation
     /// features can observe this without duplicating MappingEngine's layer/app inheritance rules.
-    public struct HandledAction: Equatable {
+    public struct HandledAction: Equatable, Sendable {
         public let key: String
         public let action: Action
         public let presentation: Config.Presentation?
@@ -19,7 +19,7 @@ public final class Controller {
         }
     }
 
-    public enum LayerCycleTarget: Equatable {
+    public enum LayerCycleTarget: Equatable, Sendable {
         case unavailable
         case base
         case layer(String)

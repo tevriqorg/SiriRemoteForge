@@ -78,6 +78,7 @@ final class VoiceHistoryStore: @unchecked Sendable {
     private let rootURL: URL
     let historyURL: URL
     private let queue = DispatchQueue(label: "com.hypervibe.voice-history", qos: .utility)
+    private let queueKey = DispatchSpecificKey<Void>()
     private var cachedPayload: Payload?
 
     init(rootURL: URL? = nil, fileManager: FileManager = .default) {
@@ -89,6 +90,7 @@ final class VoiceHistoryStore: @unchecked Sendable {
             .appendingPathComponent("HyperVibe", isDirectory: true)
             .appendingPathComponent("VoiceHistory", isDirectory: true)
         historyURL = self.rootURL.appendingPathComponent("history.json", isDirectory: false)
+        queue.setSpecific(key: queueKey, value: ())
     }
 
     func preload() {
@@ -147,7 +149,7 @@ final class VoiceHistoryStore: @unchecked Sendable {
 
     func recent(for context: VoicePromptContext, limit: Int = 20,
                 characterBudget: Int = 12_000) -> [VoiceHistoryExample] {
-        queue.sync { [self] in
+        syncOnQueue { [self] in
             let records = loadLocked().recordsByStyle[context.styleKey] ?? []
             var remaining = max(0, characterBudget)
             var newestFirst: [VoiceHistoryExample] = []
@@ -165,12 +167,19 @@ final class VoiceHistoryStore: @unchecked Sendable {
     }
 
     /// Test/support synchronization; production prompt reads already provide the same ordering.
-    func flush() { queue.sync {} }
+    func flush() { syncOnQueue {} }
 
     func storedCount(for context: VoicePromptContext) -> Int {
-        queue.sync { [self] in
+        syncOnQueue { [self] in
             loadLocked().recordsByStyle[context.styleKey]?.count ?? 0
         }
+    }
+
+    /// Blocking reads drain earlier writes, but may also be called by queue-owned support code.
+    /// Execute inline in that case instead of deadlocking on `queue.sync`.
+    private func syncOnQueue<T>(_ work: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: queueKey) != nil { return work() }
+        return queue.sync(execute: work)
     }
 
     private func loadLocked() -> Payload {
