@@ -13,8 +13,10 @@ import ApplicationServices
 import Carbon
 import Foundation
 
-private final class VoiceCorpusWAVSpool {
-    struct Finalization {
+/// Mutable spool state is fully serialized by `lock`; capture and persistence are
+/// intentionally allowed to share this object across their dedicated queues.
+private final class VoiceCorpusWAVSpool: @unchecked Sendable {
+    struct Finalization: Sendable {
         let status: String
         let storedFrameCount: Int
     }
@@ -217,6 +219,107 @@ final class VoiceCorpusRecorder {
         }
     }
 
+    /// Immutable metadata copied on the main lifecycle path before the async stop/persist hop.
+    /// Keeping this separate from `Session` prevents its mutable text-observation state from
+    /// crossing a Sendable boundary.
+    private struct CapturePersistenceSnapshot: Sendable {
+        let id: UUID
+        let startedAt: Date
+        let directoryURL: URL
+        let actionKey: String
+        let actionKind: String
+        let shortcutKeys: String
+        let applicationName: String?
+        let bundleIdentifier: String?
+
+        init(_ session: Session) {
+            id = session.id
+            startedAt = session.startedAt
+            directoryURL = session.directoryURL
+            actionKey = session.actionKey
+            actionKind = session.actionKind
+            shortcutKeys = session.shortcutKeys
+            applicationName = session.applicationName
+            bundleIdentifier = session.bundleIdentifier
+        }
+    }
+
+    /// File persistence is stateless apart from immutable dependencies. The object is shared with
+    /// the corpus I/O queue so the recorder itself and its mutable `Session` never need Sendable
+    /// conformance. Storage-status delivery is always bounced back to the main queue.
+    private final class CapturePersistence: @unchecked Sendable {
+        private let fileManager: FileManager
+        private let onStorageStatus: (String?) -> Void
+
+        init(fileManager: FileManager, onStorageStatus: @escaping (String?) -> Void) {
+            self.fileManager = fileManager
+            self.onStorageStatus = onStorageStatus
+        }
+
+        func persist(
+            snapshot: CapturePersistenceSnapshot,
+            endedAt: Date,
+            audio: VoiceCapturedAudio,
+            storage: VoiceCorpusWAVSpool.Finalization
+        ) {
+            if storage.status != "complete" {
+                reportStorageFailure(
+                    "Voice Corpus audio is incomplete for sample \(snapshot.id.uuidString)."
+                )
+            }
+            do {
+                let recordURL = snapshot.directoryURL.appendingPathComponent("capture.json")
+                let record = CaptureRecord(
+                    version: 1,
+                    id: snapshot.id,
+                    startedAt: snapshot.startedAt,
+                    endedAt: endedAt,
+                    actionKey: snapshot.actionKey,
+                    actionKind: snapshot.actionKind,
+                    shortcutKeys: snapshot.shortcutKeys,
+                    applicationName: snapshot.applicationName,
+                    bundleIdentifier: snapshot.bundleIdentifier,
+                    audioFile: "audio.wav",
+                    audioSource: audio.source.rawValue,
+                    audioStorageStatus: storage.status,
+                    audioCaptureStatus: audio.frameCount > 0 ? "captured" : "no_frames",
+                    audioStoredFrameCount: storage.storedFrameCount,
+                    sampleRate: audio.sampleRate,
+                    frameCount: audio.frameCount,
+                    durationSeconds: audio.duration,
+                    meanSquare: audio.meanSquare
+                )
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                try encoder.encode(record).write(to: recordURL, options: .atomic)
+                try secureFile(recordURL)
+                rmDebug("🗂 corpus: saved id=\(snapshot.id.uuidString) "
+                        + "source=\(audio.source.rawValue) duration=\(String(format: "%.2f", audio.duration))s "
+                        + "storage=\(storage.status) frames=\(storage.storedFrameCount)/\(audio.frameCount)")
+            } catch {
+                reportStorageFailure(
+                    "Voice Corpus cannot save capture metadata: \(error.localizedDescription)"
+                )
+                rmDebug("🗂 corpus: metadata save failed id=\(snapshot.id.uuidString): "
+                        + error.localizedDescription)
+            }
+        }
+
+        private func reportStorageFailure(_ message: String) {
+            rmDebug("🗂 corpus storage failure: \(message)")
+            let callback = onStorageStatus
+            DispatchQueue.main.async { callback(message) }
+        }
+
+        private func secureFile(_ url: URL) throws {
+            try fileManager.setAttributes(
+                [.posixPermissions: NSNumber(value: Int16(0o600))],
+                ofItemAtPath: url.path
+            )
+        }
+    }
+
     private struct CaptureRecord: Codable {
         let version: Int
         let id: UUID
@@ -314,6 +417,7 @@ final class VoiceCorpusRecorder {
     /// instead of deadlocking on `ioQueue.sync` (queue waiting on itself).
     private let ioQueueKey = DispatchSpecificKey<Void>()
     private let onStorageStatus: (String?) -> Void
+    private let capturePersistence: CapturePersistence
     private var active: Session?
     private var clipboardWatchGeneration = 0
     private var pendingObservation: Session?
@@ -337,6 +441,9 @@ final class VoiceCorpusRecorder {
          onStorageStatus: @escaping (String?) -> Void = { _ in }) {
         self.fileManager = fileManager
         self.onStorageStatus = onStorageStatus
+        self.capturePersistence = CapturePersistence(
+            fileManager: fileManager, onStorageStatus: onStorageStatus
+        )
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory())
                 .appendingPathComponent("Library/Application Support", isDirectory: true)
@@ -461,16 +568,21 @@ final class VoiceCorpusRecorder {
         pendingObservation = session
         watchTextObservations(for: session, generation: watchGeneration, attempt: 0)
 
-        Task { [weak self] in
-            let audio = await session.capture.stop()
-            guard let self else { return }
-            self.ioQueue.async {
-                let storage = session.audioSpool.finalize(
+        let capture = session.capture
+        let audioSpool = session.audioSpool
+        let snapshot = CapturePersistenceSnapshot(session)
+        let ioQueue = ioQueue
+        let capturePersistence = capturePersistence
+
+        Task {
+            let audio = await capture.stop()
+            ioQueue.async {
+                let storage = audioSpool.finalize(
                     sampleRate: audio.sampleRate,
                     expectedFrameCount: audio.frameCount
                 )
-                self.persistCapture(
-                    session: session,
+                capturePersistence.persist(
+                    snapshot: snapshot,
                     endedAt: endedAt,
                     audio: audio,
                     storage: storage
@@ -507,56 +619,6 @@ final class VoiceCorpusRecorder {
                 [.posixPermissions: NSNumber(value: Int16(0o700))],
                 ofItemAtPath: directory.path
             )
-        }
-    }
-
-    private func persistCapture(
-        session: Session,
-        endedAt: Date,
-        audio: VoiceCapturedAudio,
-        storage: VoiceCorpusWAVSpool.Finalization
-    ) {
-        if storage.status != "complete" {
-            reportStorageFailure(
-                "Voice Corpus audio is incomplete for sample \(session.id.uuidString)."
-            )
-        }
-        do {
-            let recordURL = session.directoryURL.appendingPathComponent("capture.json")
-            let record = CaptureRecord(
-                version: 1,
-                id: session.id,
-                startedAt: session.startedAt,
-                endedAt: endedAt,
-                actionKey: session.actionKey,
-                actionKind: session.actionKind,
-                shortcutKeys: session.shortcutKeys,
-                applicationName: session.applicationName,
-                bundleIdentifier: session.bundleIdentifier,
-                audioFile: "audio.wav",
-                audioSource: audio.source.rawValue,
-                audioStorageStatus: storage.status,
-                audioCaptureStatus: audio.frameCount > 0 ? "captured" : "no_frames",
-                audioStoredFrameCount: storage.storedFrameCount,
-                sampleRate: audio.sampleRate,
-                frameCount: audio.frameCount,
-                durationSeconds: audio.duration,
-                meanSquare: audio.meanSquare
-            )
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-            try encoder.encode(record).write(to: recordURL, options: .atomic)
-            try secureFile(recordURL)
-            rmDebug("🗂 corpus: saved id=\(session.id.uuidString) "
-                    + "source=\(audio.source.rawValue) duration=\(String(format: "%.2f", audio.duration))s "
-                    + "storage=\(storage.status) frames=\(storage.storedFrameCount)/\(audio.frameCount)")
-        } catch {
-            reportStorageFailure(
-                "Voice Corpus cannot save capture metadata: \(error.localizedDescription)"
-            )
-            rmDebug("🗂 corpus: metadata save failed id=\(session.id.uuidString): "
-                    + error.localizedDescription)
         }
     }
 
@@ -832,12 +894,15 @@ final class VoiceCorpusRecorder {
             let endedAt = Date()
             session.endedAt = endedAt
             let audio = session.capture.stopBlockingForTermination()
+            let captureSnapshot = CapturePersistenceSnapshot(session)
             drainIOQueueAndRun {
                 let storage = session.audioSpool.finalize(
                     sampleRate: audio.sampleRate,
                     expectedFrameCount: audio.frameCount
                 )
-                persistCapture(session: session, endedAt: endedAt, audio: audio, storage: storage)
+                capturePersistence.persist(
+                    snapshot: captureSnapshot, endedAt: endedAt, audio: audio, storage: storage
+                )
                 persistObservation(
                     makeAttemptObservation(session, textStatus: "interrupted_by_app_termination"),
                     for: session
@@ -847,6 +912,7 @@ final class VoiceCorpusRecorder {
             pendingObservation = nil
             let endedAt = session.endedAt ?? Date()
             let audio = session.capture.stopBlockingForTermination()
+            let captureSnapshot = CapturePersistenceSnapshot(session)
             drainIOQueueAndRun {
                 let storage = session.audioSpool.finalize(
                     sampleRate: audio.sampleRate,
@@ -854,7 +920,9 @@ final class VoiceCorpusRecorder {
                 )
                 // This may repeat already-completed metadata; spool finalization is idempotent and
                 // the JSON replacement is atomic.
-                persistCapture(session: session, endedAt: endedAt, audio: audio, storage: storage)
+                capturePersistence.persist(
+                    snapshot: captureSnapshot, endedAt: endedAt, audio: audio, storage: storage
+                )
                 let status = session.accessibilityCaptured
                     ? "observed" : "interrupted_by_app_termination"
                 persistObservation(makeAttemptObservation(session, textStatus: status), for: session)
