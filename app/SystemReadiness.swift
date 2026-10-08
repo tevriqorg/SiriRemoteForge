@@ -86,6 +86,32 @@ enum SystemReadiness {
         )
     }
 
+    /// The two permission bits the 1 Hz health poll actually consumes. Deliberately separate from
+    /// `snapshot()`: that one additionally asks AVFoundation for microphone authorization (a TCC
+    /// round-trip), queries `SMAppService` (heavyweight XPC) and stats five filesystem paths, yet
+    /// `refreshPermissionHealth()` reads none of those results. Measured live, running the full
+    /// snapshot every second emitted two `TCCAccessRequest` lines plus an `SMAppService` status
+    /// line per second into the unified log and buried genuine errors under the spam.
+    struct CorePermissionState: Equatable {
+        let accessibility: Bool
+        let inputMonitoring: Bool
+
+        var granted: Bool { accessibility && inputMonitoring }
+    }
+
+    /// Cheap enough for a 1 Hz poll. Measured per call: `AXIsProcessTrusted` ~19 µs and emits no
+    /// TCC IPC (in-process cached read), while `IOHIDCheckAccess` costs ~500 µs and one
+    /// `TCCAccessRequest` round-trip. So the 1 Hz timer produces exactly one TCC line per second,
+    /// essentially all of it from the IOHID half. `IOHIDCheckAccess` was also part of the previous
+    /// per-second `snapshot()` work, so this is not added overhead.
+
+    static func corePermissionState() -> CorePermissionState {
+        CorePermissionState(
+            accessibility: AXIsProcessTrusted(),
+            inputMonitoring: IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
+                == kIOHIDAccessTypeGranted)
+    }
+
     /// Register HyperVibe with the Accessibility privacy service and let macOS present its native
     /// explanation. Opening the pane is a separate UI affordance, so the user never gets a prompt
     /// and a settings jump piled on top of one another.

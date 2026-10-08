@@ -88,6 +88,18 @@ enum VoiceInputSelfTest {
                && staleFirstLiftIsIgnored && activeSecondLiftEnds,
                "either remote touch surface takes ownership without a stale peer lift ending it")
 
+        expect(
+            VoiceCredentialStore.backendPolicy(expected: .keychain, brokerAvailable: false)
+                == .unavailable
+            && VoiceCredentialStore.backendPolicy(expected: .keychain, brokerAvailable: true)
+                == .keychain
+            && VoiceCredentialStore.backendPolicy(expected: .localJSON, brokerAvailable: true)
+                == .localJSON
+            && VoiceCredentialStore.backendPolicy(expected: nil, brokerAvailable: false)
+                == .localJSON,
+            "packaged Keychain builds fail closed instead of falling back to plaintext credentials"
+        )
+
         let credentialTestRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("HyperVibe-Credential-Test-\(UUID().uuidString)",
                                     isDirectory: true)
@@ -822,8 +834,23 @@ enum VoiceInputSelfTest {
                                                   producerWasActive: false) == 90_000
                && VoiceRemoteProbePolicy.firstCursor(baseline: 90_000,
                                                      producerWasActive: true) == 75_600
-               && VoiceRemoteProbePolicy.maximumWaitNanoseconds == 650_000_000,
-               "new remote producers cannot leak stale pre-roll while live producers retain it")
+               && VoiceRemoteProbePolicy.maximumWaitNanoseconds == 650_000_000
+               && VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
+                    remoteWasActiveAtStart: false, builtInFrameCount: 1
+                  )
+               && !VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
+                    remoteWasActiveAtStart: false, builtInFrameCount: 0
+                  )
+               && !VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
+                    remoteWasActiveAtStart: true, builtInFrameCount: 1
+                  )
+               && VoiceRemoteProbePolicy.rebasedBaselineAfterProducerRestart(
+                    baseline: 90_000, current: 1_200
+                  ) == 0
+               && VoiceRemoteProbePolicy.rebasedBaselineAfterProducerRestart(
+                    baseline: 90_000, current: 91_200
+                  ) == 90_000,
+               "cold remote preserves real built-in audio and survives a router counter restart")
 
         let appendProbe = Data([0, 1, 2, 3, 254, 255])
         let appendEnvelope = VoiceRealtimeTranscriptionSession.audioAppendMessage(appendProbe)

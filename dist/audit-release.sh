@@ -70,7 +70,7 @@ echo "→ auditing native Installer structure"
 /bin/bash -n "$PKG_POSTINSTALL"
 /usr/bin/xmllint --noout "$AUDIT_DIR/native-pkg/Distribution" "$PKG_COMPONENT/PackageInfo"
 /usr/bin/grep -Fq 'hostArchitectures="arm64"' "$AUDIT_DIR/native-pkg/Distribution"
-/usr/bin/grep -Fq 'identifier="com.hypervibe.full"' "$PKG_COMPONENT/PackageInfo"
+/usr/bin/grep -Fq 'identifier="org.tevriq.siriremoteforge.full"' "$PKG_COMPONENT/PackageInfo"
 /usr/bin/grep -Fq '<must-close>' "$AUDIT_DIR/native-pkg/Distribution"
 /usr/bin/grep -Fq -- '--args --system-check' "$PKG_POSTINSTALL"
 /usr/bin/diff -qr "$PAYLOAD" "$PKG_PAYLOAD" >/dev/null
@@ -104,6 +104,17 @@ echo "→ auditing versions, architecture, and runtime links"
     = "$APP_VERSION" ]
 [ "$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$UNINSTALL/Contents/Info.plist")" \
     = "$APP_VERSION" ]
+[ "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$APP/Contents/Info.plist")" \
+    = "org.tevriq.siriremoteforge" ]
+[ "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$SETUP/Contents/Info.plist")" \
+    = "org.tevriq.siriremoteforge.setup" ]
+[ "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$UNINSTALL/Contents/Info.plist")" \
+    = "org.tevriq.siriremoteforge.uninstall" ]
+[ "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - \
+    "$APP/Contents/XPCServices/HyperVibeCredentialBroker.xpc/Contents/Info.plist")" \
+    = "org.tevriq.siriremoteforge.CredentialBroker" ]
+[ "$(/usr/bin/plutil -extract HyperVibeCredentialBackend raw -o - "$APP/Contents/Info.plist")" \
+    = "local-json" ]
 for bundle in "$APP" "$SETUP" "$UNINSTALL" "$PAYLOAD/SiriRemoteMic.driver"; do
     [ "$(/usr/bin/plutil -extract CFBundleVersion raw -o - "$bundle/Contents/Info.plist")" \
         = "$BUILD_NUMBER" ] || {

@@ -92,8 +92,10 @@ enum ConfigStore {
       //     coming); nothing else is affected and the plain tap is never delayed.
       // Actions: keystroke(keys) pushToTalk(keys) holdKeystroke(keys) media(key) mouse(op) launch(app|url)
       //          shell(command) applescript(script) mode(to) layer(to) layerCycle
-      //   holdKeystroke keeps its keys down from the Siri hold (after 0.2s) until release;
-      //     use it for true hold-to-talk shortcuts. Existing pushToTalk remains toggle-compatible.
+      //   holdKeystroke mirrors the physical press exactly: key-down immediately, key-up on release;
+      //     use it for true hold-to-talk shortcuts. A base holdKeystroke owns that physical press,
+      //     so its .double/.triple/.hold variants and Native Voice are intentionally not reachable.
+      //     Existing pushToTalk remains the separate delayed/tap-compatible route.
       //          brightnessStep(to: up|down)
       //   layer(to): the bound key becomes a layer key — TAP it to toggle that mode sticky
       //     (persists until tapped again), or HOLD it and press other keys for momentary use.
@@ -147,6 +149,9 @@ enum ConfigStore {
         "holdHUDEnabled": true,       // larger release-to-select progress HUD
         "dragIndicatorEnabled": true, // cursor-adjacent sticky-drag badge
         "showSetupWizardOnFirstLaunch": true,
+        // Long-term external voice corpus capture. Off by default because enabling it persistently
+        // stores microphone audio plus best-effort IME clipboard text under Application Support.
+        "corpusCaptureEnabled": false,
         // App-native speech-to-text. API keys live in machine-local credential storage; never put
         // them in this shareable configuration.
         // `final` returns one optionally polished result; `streaming` inserts live deltas and skips

@@ -188,9 +188,9 @@ echo "→ building uninstaller"
     "$UNINSTALL_APP/Contents/Info.plist" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :CFBundleName string HyperVibe Uninstall" \
         "$UNINSTALL_APP/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.hypervibe.uninstall" \
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier org.tevriq.siriremoteforge.uninstall" \
     "$UNINSTALL_APP/Contents/Info.plist" 2>/dev/null \
-    || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string com.hypervibe.uninstall" \
+    || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string org.tevriq.siriremoteforge.uninstall" \
         "$UNINSTALL_APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" \
     "$UNINSTALL_APP/Contents/Info.plist" 2>/dev/null \
@@ -218,9 +218,9 @@ echo "→ building setup app"
     "$SETUP_APP/Contents/Info.plist" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :CFBundleName string HyperVibe Setup" \
         "$SETUP_APP/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.hypervibe.setup" \
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier org.tevriq.siriremoteforge.setup" \
     "$SETUP_APP/Contents/Info.plist" 2>/dev/null \
-    || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string com.hypervibe.setup" \
+    || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string org.tevriq.siriremoteforge.setup" \
         "$SETUP_APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" \
     "$SETUP_APP/Contents/Info.plist" 2>/dev/null \
@@ -249,7 +249,7 @@ echo "→ building native macOS Installer package"
     --root "$PKG_ROOT" \
     --scripts "$PKG_SCRIPTS" \
     --component-plist "$DIST/pkg/components.plist" \
-    --identifier com.hypervibe.full \
+    --identifier org.tevriq.siriremoteforge.full \
     --version "$APP_VERSION" \
     --install-location / \
     --ownership recommended \

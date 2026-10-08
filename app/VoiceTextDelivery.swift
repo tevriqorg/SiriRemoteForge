@@ -428,10 +428,22 @@ private final class VoiceTextDeliveryWorker: @unchecked Sendable {
     /// Fetch the frontmost PID immediately before the AX check/write, on the same ordered worker.
     /// Callers await this worker asynchronously, so synchronising this tiny AppKit lookup onto the
     /// main queue cannot block the UI and closes the old focus-change TOCTOU window.
+    ///
+    /// Hardened against the one fatal misuse: this must never be reached FROM the main thread, or
+    /// `main.sync` deadlocks (main waiting on itself). Every current caller runs inside `perform`,
+    /// i.e. on `queue`; assert that and fall back to a direct read instead of deadlocking if a
+    /// future caller breaks the contract.
     private static func currentFrontmostPID() -> pid_t? {
-        DispatchQueue.main.sync {
-            NSWorkspace.shared.frontmostApplication?.processIdentifier
+        guard Thread.isMainThread else {
+            return DispatchQueue.main.sync {
+                NSWorkspace.shared.frontmostApplication?.processIdentifier
+            }
         }
+        // Reaching here means a future caller invoked this from the main thread, where `main.sync`
+        // would deadlock. Read AppKit directly instead: it is already the main thread, so the value
+        // is equally current and nothing is lost.
+        assertionFailure("currentFrontmostPID() must not be called on the main thread")
+        return NSWorkspace.shared.frontmostApplication?.processIdentifier
     }
 
     /// A full target check above may spend several milliseconds in cross-process AX. Repeat only
@@ -580,6 +592,29 @@ final class VoiceTextDeliverer {
         let focused = focusedResult == .success
             ? (focusedValue as! AXUIElement?) : nil
 
+        // Privacy boundary first: never read selection/value from a secure target and never read
+        // editor contents while macOS Secure Event Input is active.
+        let secureInput = IsSecureEventInputEnabled()
+        if let focused { AXUIElementSetMessagingTimeout(focused, 0.025) }
+        let role = focused.flatMap { Self.attributeString($0, kAXRoleAttribute) }
+        let subrole = focused.flatMap { Self.attributeString($0, kAXSubroleAttribute) }
+        let isSecure = secureInput || role == "AXSecureTextField" || subrole == "AXSecureTextField"
+        if isSecure {
+            return VoiceTextTarget(
+                pid: seed.pid,
+                bundleIdentifier: seed.bundleIdentifier,
+                applicationName: seed.applicationName,
+                focusedElement: focused,
+                focusSignature: nil,
+                selectedText: nil,
+                selectedTextReadable: false,
+                selectedTextSettable: false,
+                isSecure: true,
+                valueBeforeInsertion: nil,
+                selectedRangeBeforeInsertion: nil
+            )
+        }
+
         var selectedTextSettable: DarwinBoolean = false
         var selectedText: String?
         var selectedTextReadable = false
@@ -615,11 +650,6 @@ final class VoiceTextDeliverer {
             }
         }
 
-        let role = focused.flatMap { Self.attributeString($0, kAXRoleAttribute) }
-        let subrole = focused.flatMap { Self.attributeString($0, kAXSubroleAttribute) }
-        let isSecure = role == "AXSecureTextField" || subrole == "AXSecureTextField"
-            || IsSecureEventInputEnabled()
-
         return VoiceTextTarget(
             pid: seed.pid,
             bundleIdentifier: seed.bundleIdentifier,
@@ -633,7 +663,7 @@ final class VoiceTextDeliverer {
             selectedText: selectedText,
             selectedTextReadable: selectedTextReadable,
             selectedTextSettable: selectedTextSettable.boolValue,
-            isSecure: isSecure,
+            isSecure: false,
             valueBeforeInsertion: valueBeforeInsertion,
             selectedRangeBeforeInsertion: selectedRangeBeforeInsertion
         )

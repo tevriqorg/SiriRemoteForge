@@ -29,6 +29,8 @@ final class SetupWizardController {
     static let languageChosenKey = "app.setupLanguageChosen"
 
     private var window: NSWindow?
+    private var model: SetupModel?
+    private var closeObserver: NSObjectProtocol?
     private let onFinished: () -> Void
     private let onLanguageChosen: (AppLanguage) -> Void
     private let onLaunchAtLoginChanged: (Bool) -> Void
@@ -44,16 +46,24 @@ final class SetupWizardController {
         self.onPermissionStateChanged = onPermissionStateChanged
     }
 
+    deinit {
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+    }
+
     func show() {
         if window == nil {
             let hasChosenLanguage = UserDefaults.standard.bool(forKey: Self.languageChosenKey)
                 || UserDefaults.standard.bool(forKey: Self.completedKey)
-            let hosting = NSHostingController(rootView: SetupWizardView(
+            let model = SetupModel(
                 initialStep: hasChosenLanguage ? 1 : 0,
-                onDone: { [weak self] in self?.finish() },
-                onLanguageChosen: onLanguageChosen,
                 onLaunchAtLoginChanged: onLaunchAtLoginChanged,
                 onPermissionStateChanged: onPermissionStateChanged
+            )
+            self.model = model
+            let hosting = NSHostingController(rootView: SetupWizardView(
+                model: model,
+                onDone: { [weak self] in self?.finish() },
+                onLanguageChosen: onLanguageChosen
             ))
             // NSHostingController otherwise promotes the ScrollView's full document height to the
             // window's preferredContentSize (observed as a 4059 px-tall window). The setup window
@@ -74,7 +84,17 @@ final class SetupWizardController {
             win.maxSize = NSSize(width: 1100, height: 900)
             win.center()
             window = win
+            // The window is cached (`isReleasedWhenClosed = false`) and the red close button only
+            // orders it out, so SwiftUI never tears the view down. Without this observer the
+            // readiness poll would keep running for the rest of the app's uptime, with nothing on
+            // screen showing its result.
+            closeObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: win, queue: .main
+            ) { [weak self] _ in
+                self?.model?.stop()
+            }
         }
+        model?.start()
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }
@@ -99,6 +119,9 @@ final class SetupModel: ObservableObject {
 
     private var timer: Timer?
     private var activationObserver: NSObjectProtocol?
+    /// One full `snapshot()` per this many 0.75 s ticks (~3.75 s); see `refresh(forceFull:)`.
+    private static let fullSnapshotEveryTicks = 5
+    private var tick = 0
     private let onLaunchAtLoginChanged: (Bool) -> Void
     private let onPermissionStateChanged: () -> Void
     private var previousAccessibility: Bool
@@ -115,27 +138,56 @@ final class SetupModel: ObservableObject {
         self.onLaunchAtLoginChanged = onLaunchAtLoginChanged
         self.onPermissionStateChanged = onPermissionStateChanged
 
-        timer = Timer.scheduledTimer(withTimeInterval: 0.75, repeats: true) { [weak self] _ in
+        start()
+        refreshAutomation(askUserIfNeeded: false)
+    }
+
+    deinit {
+        stop()
+    }
+
+    /// Starts (or resumes) the periodic readiness poll. Idempotent: `show()` calls it again when a
+    /// cached window is re-opened after `stop()`.
+    func start() {
+        guard timer == nil else { return }
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.75, repeats: true) { [weak self] _ in
             self?.refresh()
         }
-        if let timer { RunLoop.main.add(timer, forMode: .common) }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+        guard activationObserver == nil else { return }
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in self?.refresh() }
-
-        refreshAutomation(askUserIfNeeded: false)
     }
 
-    deinit {
+    func stop() {
         timer?.invalidate()
+        timer = nil
         if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+        activationObserver = nil
     }
 
     var coreReady: Bool { readiness.corePermissionsGranted }
 
-    func refresh() {
+    /// Runs on every tick. The two permission bits are re-read cheaply so a flip in System Settings
+    /// is still noticed within 0.75 s, but the expensive parts of `snapshot()` — an AVFoundation TCC
+    /// round-trip, an `SMAppService` XPC round-trip and five filesystem stats — only run when one of
+    /// those bits actually changed, or every `fullSnapshotEveryTicks` so out-of-band changes
+    /// (microphone grant, driver install) still appear. Measured live, the unconditional full
+    /// snapshot here emitted a TCC request plus an SMAppService status line into the unified log
+    /// every 0.75 s.
+    func refresh(forceFull: Bool = false) {
+        tick += 1
+        let core = SystemReadiness.corePermissionState()
+        let permissionsChanged = core.accessibility != previousAccessibility
+            || core.inputMonitoring != previousInputMonitoring
+
+        guard forceFull || permissionsChanged || tick >= Self.fullSnapshotEveryTicks else { return }
+        tick = 0
+
         let updated = SystemReadiness.snapshot(automation: automationState)
         readiness = updated
 
@@ -167,7 +219,7 @@ final class SetupModel: ObservableObject {
             SystemReadiness.openMicrophoneSettings()
             return
         }
-        SystemReadiness.requestMicrophone { [weak self] in self?.refresh() }
+        SystemReadiness.requestMicrophone { [weak self] in self?.refresh(forceFull: true) }
     }
 
     func requestAutomation() {
@@ -181,7 +233,7 @@ final class SetupModel: ObservableObject {
         } catch {
             launchAtLoginError = error.localizedDescription
         }
-        refresh()
+        refresh(forceFull: true)
         onLaunchAtLoginChanged(readiness.launchAtLogin.isOn)
     }
 
@@ -197,8 +249,12 @@ final class SetupModel: ObservableObject {
     }
 
     private func scheduleRefresh() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in self?.refresh() }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.refresh() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+            self?.refresh(forceFull: true)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            self?.refresh(forceFull: true)
+        }
     }
 }
 
@@ -208,22 +264,16 @@ private struct SetupWizardView: View {
     let onDone: () -> Void
     let onLanguageChosen: (AppLanguage) -> Void
 
-    @StateObject private var model: SetupModel
+    @ObservedObject private var model: SetupModel
     @ObservedObject private var loc = Loc.shared
     @ObservedObject private var remote = RemoteConnection.shared
 
-    init(initialStep: Int,
+    init(model: SetupModel,
          onDone: @escaping () -> Void,
-         onLanguageChosen: @escaping (AppLanguage) -> Void,
-         onLaunchAtLoginChanged: @escaping (Bool) -> Void,
-         onPermissionStateChanged: @escaping () -> Void) {
+         onLanguageChosen: @escaping (AppLanguage) -> Void) {
+        self.model = model
         self.onDone = onDone
         self.onLanguageChosen = onLanguageChosen
-        _model = StateObject(wrappedValue: SetupModel(
-            initialStep: initialStep,
-            onLaunchAtLoginChanged: onLaunchAtLoginChanged,
-            onPermissionStateChanged: onPermissionStateChanged
-        ))
     }
 
     var body: some View {
