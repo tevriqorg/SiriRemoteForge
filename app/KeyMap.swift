@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  KeyMap.swift
 //  HyperVibe (config engine integration)

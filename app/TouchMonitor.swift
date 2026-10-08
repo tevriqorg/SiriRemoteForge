@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  TouchMonitor.swift
 //  HyperVibe

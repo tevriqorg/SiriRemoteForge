@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  HoldAnimationGallery.swift
 //  HyperVibe

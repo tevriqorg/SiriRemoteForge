@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  TouchSnapshot.swift
 //  HyperVibe

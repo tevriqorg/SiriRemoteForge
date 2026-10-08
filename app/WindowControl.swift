@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  WindowControl.swift
 //  HyperVibe

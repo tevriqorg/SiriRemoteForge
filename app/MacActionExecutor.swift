@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  MacActionExecutor.swift
 //  HyperVibe (config engine integration)

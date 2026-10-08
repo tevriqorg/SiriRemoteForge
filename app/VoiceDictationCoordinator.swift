@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  VoiceDictationCoordinator.swift
 //  HyperVibe

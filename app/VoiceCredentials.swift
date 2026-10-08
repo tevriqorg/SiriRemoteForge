@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  VoiceCredentials.swift
 //  HyperVibe

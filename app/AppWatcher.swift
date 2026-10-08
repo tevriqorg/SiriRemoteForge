@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  AppWatcher.swift
 //  HyperVibe (config engine integration)

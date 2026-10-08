@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  RemoteView.swift
 //  HyperVibe (settings UI — Layout tab)

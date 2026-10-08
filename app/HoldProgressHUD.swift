@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  HoldProgressHUD.swift
 //  HyperVibe

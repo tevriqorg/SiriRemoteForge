@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  main.swift
 //  HyperVibe

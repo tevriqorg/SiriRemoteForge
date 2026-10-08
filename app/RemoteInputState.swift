@@ -1,3 +1,4 @@
+import SiriRemoteCore
 // Pure input routing state extracted from the HID adapter. No AppKit or IOKit dependencies.
 import Foundation
 
