@@ -5,6 +5,44 @@ and superseded implementation notes are archived under `deprecated/`; they are r
 not current operating instructions.
 
 Last structural refresh: 2026-09-23.
+Last content update: 2026-10-08.
+
+## Touch-input and synchronization hardening (2026-10-08)
+
+Diagnosed from the running App's diagnostic log (`/tmp/hypervibe.log`), then merged to `main`.
+
+**1. Idle touch-surface churn (the user-visible "stutter").** `TouchHandler.checkAndReconnect`
+treated *"no contact frame for `touchStarvationThreshold` (15 s)"* as remote sleep and called
+`stopAllDevices()` + `findAndReconcileDevices()` on **every** 2 s timer tick once past that window.
+Measured **3051 restarts in 13.7 h (~5000/day, one every 16 s)**, each doing a needless main-thread
+MTDeviceStop/Start. The device is present and reports as running, so silence is indistinguishable
+from ordinary idle. The starvation recovery is now **single-shot per quiet period**, re-armed only
+by a real contact frame (`count > 0`). After the fix a restart happens at most once per idle period
+following an actual touch; a session with no touch produces one restart after launch and then none
+(verified: 0 restarts across a 9-minute untouched window with button presses only). Genuine recovery
+paths are unchanged: device present-but-not-running, device-ID set change, the wake observer, the
+fast reconnect loop, and HID activity.
+
+**2. `main.sync` deadlock hazard.** `VoiceTextDeliveryWorker.currentFrontmostPID()` called
+`DispatchQueue.main.sync` unconditionally. Every current caller runs on the worker queue, so this is
+safe today, but any future call from the main thread would deadlock (main waiting on itself). It now
+reads AppKit directly on the main thread with an `assertionFailure` instead of deadlocking.
+
+**3. Corpus termination-drain deadlock hazard.** `VoiceCorpusRecorder.flushForTermination()` used
+`ioQueue.sync` three times; reached from its own queue it would deadlock. Routed through
+`drainIOQueueAndRun()`, which runs inline when already on `ioQueue` (queue specific key).
+
+**Deliberately NOT changed — these are specified behavior, not defects.** Corpus
+`interrupted_by_focus_change` (~20 % of attempts) and `interrupted_by_next_attempt` (~3 %) are
+mandated by `docs/voice-corpus.md`: "missing labels are preferred to wrong audio/text pairing".
+An attempt whose text cannot be target-verified inside the post-release window is closed without a
+label rather than risk mis-attributing another attempt's or another app's text. Raising that rate
+down would mean weakening the attribution guarantee, which is explicitly not wanted.
+
+Validation for the change: `swift build --package-path SiriRemoteCore` OK; `swift test` 135/135 pass;
+`cd app && ./build.sh` OK; staged `HyperVibe-Dev.app` passes strict nested `codesign --verify`.
+Merged to `main` (merge commit `b4aa0f3`), installed at `/Applications/HyperVibe.app`, previous
+bundle preserved as a rollback copy outside `/Applications`.
 
 ## Repository identity
 
