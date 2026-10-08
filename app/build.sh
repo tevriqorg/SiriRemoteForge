@@ -22,6 +22,7 @@ SWIFT_FILES=(
     "MenuBarManager.swift"
     "UpdateManager.swift"
     "RemoteDetector.swift"
+    "RemoteInputState.swift"
     "RemoteInputHandler.swift"
     "GATTDiagnostics.swift"
     "NativePushToTalk.swift"
