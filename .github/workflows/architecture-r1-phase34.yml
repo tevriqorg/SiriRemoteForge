@@ -1,0 +1,158 @@
+name: Architecture R1 Phase 3-4
+
+on:
+  push:
+    branches:
+      - 'chatgpt/architecture-r1-20261008'
+    paths:
+      - '.github/workflows/architecture-r1-phase34.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  composition-and-ownership:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt/architecture-r1-20261008
+          fetch-depth: 0
+
+      - name: Extract lifecycle runtime and developer command router
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          runtime = Path('app/AppRuntime.swift')
+          if runtime.exists():
+              raise SystemExit('AppRuntime.swift already exists; refusing non-idempotent transform')
+          runtime.write_text('''import Foundation
+
+/// Owns the long-lived physical-input subsystem graph. AppKit composition remains in AppDelegate,
+/// while device/HID lifecycle has one explicit owner and one passive-input shutdown boundary.
+/// All calls are made from the application main thread; worker internals keep their own queues.
+final class AppRuntime {
+    var remoteDetector: RemoteDetector?
+    var remoteInputHandler: RemoteInputHandler?
+    var mediaKeyInterceptor: MediaKeyInterceptor?
+    var touchHandler: TouchHandler?
+
+    func stopPassiveInput() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        touchHandler?.stop()
+        remoteDetector?.stopDetection()
+        mediaKeyInterceptor?.stop()
+    }
+}
+''')
+
+          router = Path('app/DeveloperCommandRouter.swift')
+          if router.exists():
+              raise SystemExit('DeveloperCommandRouter.swift already exists')
+          router.write_text('''import Foundation
+
+/// Immutable command-line boundary for visual QC, snapshots and diagnostic launch modes.
+/// Production startup no longer reaches directly into global CommandLine state throughout the
+/// composition root; execution stays beside the AppKit surfaces it drives.
+struct DeveloperCommandRouter: Sendable {
+    let arguments: [String]
+
+    init(arguments: [String]) {
+        self.arguments = arguments
+    }
+
+    func has(_ flag: String) -> Bool {
+        arguments.contains(flag)
+    }
+
+    func value(after flag: String) -> String? {
+        guard let index = arguments.firstIndex(of: flag), index + 1 < arguments.count else {
+            return nil
+        }
+        return arguments[index + 1]
+    }
+
+    var isDeveloperLaunch: Bool {
+        arguments.dropFirst().contains { argument in
+            argument.hasPrefix("--test-")
+                || argument.hasPrefix("--snapshot-")
+                || argument == "--preview-hold-animations"
+                || argument == "--dump-gatt"
+        }
+    }
+}
+''')
+
+          app = Path('app/SiriRemoteApp.swift')
+          s = app.read_text()
+          marker = 'class AppDelegate: NSObject, NSApplicationDelegate {\n'
+          if marker not in s:
+              raise SystemExit('AppDelegate marker missing')
+          s = s.replace(marker, marker +
+              '    private let runtime = AppRuntime()\n'
+              '    private let developerCommands = DeveloperCommandRouter(arguments: CommandLine.arguments)\n\n', 1)
+
+          owned = {
+              'remoteDetector': '    private var remoteDetector: RemoteDetector?\n',
+              'remoteInputHandler': '    private var remoteInputHandler: RemoteInputHandler?\n',
+              'mediaKeyInterceptor': '    private var mediaKeyInterceptor: MediaKeyInterceptor?\n',
+              'touchHandler': '    private var touchHandler: TouchHandler?\n',
+          }
+          for name, declaration in owned.items():
+              if declaration not in s:
+                  raise SystemExit(f'expected property declaration missing: {name}')
+              s = s.replace(declaration, '', 1)
+
+          for name in owned:
+              s = re.sub(rf'(?<![A-Za-z0-9_.]){name}\b', f'runtime.{name}', s)
+              s = s.replace(f'self?.{name}', f'self?.runtime.{name}')
+              s = s.replace(f'self.{name}', f'self.runtime.{name}')
+
+          # Route all AppDelegate command inspection through the immutable router facade.
+          s = s.replace('CommandLine.arguments.contains(', 'developerCommands.has(')
+          s = s.replace('CommandLine.arguments', 'developerCommands.arguments')
+          # The replacement above must not rewrite the router's own initialization.
+          s = s.replace(
+              'DeveloperCommandRouter(arguments: developerCommands.arguments)',
+              'DeveloperCommandRouter(arguments: CommandLine.arguments)', 1)
+
+          passive = ('        runtime.touchHandler?.stop()\n'
+                     '        runtime.remoteDetector?.stopDetection()\n'
+                     '        runtime.mediaKeyInterceptor?.stop()\n')
+          if passive not in s:
+              raise SystemExit('passive input cleanup block missing')
+          s = s.replace(passive, '        runtime.stopPassiveInput()\n', 1)
+          app.write_text(s)
+
+          build = Path('app/build.sh')
+          b = build.read_text()
+          build_marker = '    "SiriRemoteApp.swift"\n'
+          if build_marker not in b:
+              raise SystemExit('SiriRemoteApp build marker missing')
+          b = b.replace(build_marker,
+                        build_marker + '    "AppRuntime.swift"\n    "DeveloperCommandRouter.swift"\n', 1)
+          build.write_text(b)
+          PY
+
+      - name: Validate composition and ownership
+        run: |
+          git diff --check
+          bash -n app/build.sh scripts/check-swift-concurrency.sh
+          swift build --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+          swift test --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+          ./scripts/check-swift-concurrency.sh
+          cd app
+          ./build.sh
+          HYPERVIBE_SIGN_MODE=adhoc ./create_app_bundle.sh
+          codesign --verify --deep --strict --verbose=2 .build/HyperVibe-Dev.app
+
+      - name: Push validated Phase 3-4 to staging ref
+        run: |
+          git config user.name "tevriq"
+          git config user.email "318064862+tevriq@users.noreply.github.com"
+          git add app/AppRuntime.swift app/DeveloperCommandRouter.swift app/SiriRemoteApp.swift app/build.sh
+          git diff --cached --check
+          git commit -m "refactor: isolate app runtime ownership and developer routing By ChatGPT"
+          git push origin HEAD:refs/heads/automation/architecture-r1-phase34-staging-20261009
