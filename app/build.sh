@@ -19,6 +19,8 @@ SWIFT_FILES=(
     "main.swift"
     "Localization.swift"
     "SiriRemoteApp.swift"
+    "AppRuntime.swift"
+    "DeveloperCommandRouter.swift"
     "MenuBarManager.swift"
     "UpdateManager.swift"
     "RemoteDetector.swift"
