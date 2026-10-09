@@ -13,14 +13,13 @@ import CoreGraphics
 import Darwin
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    private let runtime = AppRuntime()
+    private let developerCommands = DeveloperCommandRouter(arguments: CommandLine.arguments)
+
     
     private var statusItem: NSStatusItem!
     private var menuBarManager: MenuBarManager!
     private var updateManager: UpdateManager?
-    private var remoteDetector: RemoteDetector?
-    private var remoteInputHandler: RemoteInputHandler?
-    private var mediaKeyInterceptor: MediaKeyInterceptor?
-    private var touchHandler: TouchHandler?
     private var cursorHighlighter: CursorHighlighter?
     private var layerHUD: LayerHUD?
     private var statusWidget: StatusWidgetController?
@@ -110,22 +109,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Headless AppKit bridge verification: consumes synthetic local NSEvents only, never opens
         // the remote or posts a system keyboard event.
-        if CommandLine.arguments.contains("--test-shortcut-recorder") {
+        if developerCommands.has("--test-shortcut-recorder") {
             exit(ShortcutRecorderSelfTest.run() ? 0 : 1)
         }
 
         // Headless self-QC: `--snapshot-layout <path>` renders the Layout settings view to a PNG
         // and exits, without seizing the remote or opening a window.
-        if let idx = CommandLine.arguments.firstIndex(of: "--snapshot-layout"),
-           idx + 1 < CommandLine.arguments.count {
-            LayoutSnapshot.renderAndExit(to: CommandLine.arguments[idx + 1])
+        if let idx = developerCommands.arguments.firstIndex(of: "--snapshot-layout"),
+           idx + 1 < developerCommands.arguments.count {
+            LayoutSnapshot.renderAndExit(to: developerCommands.arguments[idx + 1])
             return
         }
 
         // Isolated motion-design lab: nine long-press candidates run against the same timeline in a
         // comparison window. It deliberately returns before remote/HID/audio setup, so designers
         // can leave it open beside the production app without affecting input or rcd.
-        if CommandLine.arguments.contains("--preview-hold-animations") {
+        if developerCommands.has("--preview-hold-animations") {
             // The isolated motion lab is a real foreground design surface. Production continues
             // to use accessory mode; only this explicit preview command receives a Dock/window
             // presence so macOS always moves it onto the user's active Space.
@@ -139,7 +138,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Headless visual QC: `--test-highlight` shows the find-my-cursor highlight pinned at the
         // main screen's center for ~4s (so it can be screenshotted), then exits — without seizing
         // the remote, suspending rcd, or wiring up the rest of the app.
-        if CommandLine.arguments.contains("--test-highlight") {
+        if developerCommands.has("--test-highlight") {
             NSApp.setActivationPolicy(.accessory)
             let hl = CursorHighlighter()
             cursorHighlighter = hl
@@ -153,10 +152,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Headless visual QC: `--test-layer-hud` walks the complete three-layer cycle while the card
         // stays visible, exercising tint morphing and in-place transitions without seizing remote IO.
-        if CommandLine.arguments.contains("--test-layer-hud")
-            || CommandLine.arguments.contains("--test-layer-hud-long") {
+        if developerCommands.has("--test-layer-hud")
+            || developerCommands.has("--test-layer-hud-long") {
             NSApp.setActivationPolicy(.accessory)
-            let interval: TimeInterval = CommandLine.arguments.contains("--test-layer-hud-long")
+            let interval: TimeInterval = developerCommands.has("--test-layer-hud-long")
                 ? 8.0 : 0.65
             let previewConfig = ConfigStore.loadConfig()
             let hud = LayerHUD(layers: previewConfig.settings.layers,
@@ -174,7 +173,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Deterministic lifecycle regression for the reported External -> Final failure. Begin a
         // real listening presentation while Final's selector card is already inside its delayed
         // CRT fade; the new waveform must cancel that exit and remain fully visible.
-        if CommandLine.arguments.contains("--test-voice-mode-return-to-final") {
+        if developerCommands.has("--test-voice-mode-return-to-final") {
             NSApp.setActivationPolicy(.accessory)
             let config = ConfigStore.loadConfig()
             let hud = VoicePipelineHUDController(layers: config.settings.layers,
@@ -200,15 +199,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Isolated visual QC for the global Mute+Side selector. It deliberately visits External
         // twice so a missing third-state preview or an interrupted return animation is obvious.
         // No remote, microphone, input hook or network resource is opened.
-        if CommandLine.arguments.contains("--test-voice-mode-hud")
-            || CommandLine.arguments.contains("--test-voice-mode-hud-long") {
+        if developerCommands.has("--test-voice-mode-hud")
+            || developerCommands.has("--test-voice-mode-hud-long") {
             NSApp.setActivationPolicy(.accessory)
             let config = ConfigStore.loadConfig()
             let hud = VoicePipelineHUDController(layers: config.settings.layers,
                                                  icons: config.settings.icons, enabled: true)
             voicePipelineHUD = hud
             let modes: [Config.DictationMode] = [.external, .final, .streaming, .external]
-            let long = CommandLine.arguments.contains("--test-voice-mode-hud-long")
+            let long = developerCommands.has("--test-voice-mode-hud-long")
             let count = long ? 24 : modes.count
             let interval: TimeInterval = long ? 0.72 : 0.54
             for index in 0..<count {
@@ -224,14 +223,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Exact production rendering snapshots for the three Mute+Side selector destinations.
         // This opens only the temporary HUD and writes its transparent 112×98 surface to PNG.
-        if let index = CommandLine.arguments.firstIndex(of: "--snapshot-voice-mode-hud"),
-           index + 2 < CommandLine.arguments.count {
+        if let index = developerCommands.arguments.firstIndex(of: "--snapshot-voice-mode-hud"),
+           index + 2 < developerCommands.arguments.count {
             NSApp.setActivationPolicy(.prohibited)
             let config = ConfigStore.loadConfig()
             let hud = VoicePipelineHUDController(layers: config.settings.layers,
                                                  icons: config.settings.icons, enabled: true)
             voicePipelineHUD = hud
-            let rawMode = CommandLine.arguments[index + 1]
+            let rawMode = developerCommands.arguments[index + 1]
             let mode: Config.DictationMode
             switch rawMode.lowercased() {
             case "external": mode = .external
@@ -241,12 +240,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 print("VOICE_MODE_SNAPSHOT FAIL expected external|final|streaming")
                 exit(2)
             }
-            let destination = URL(fileURLWithPath: CommandLine.arguments[index + 2])
+            let destination = URL(fileURLWithPath: developerCommands.arguments[index + 2])
             hud.showVoiceModeSwitch(mode)
             // An optional fourth argument selects an exact animation time for visual QC. The
             // default captures the settled symbol inside the production 980 ms dwell.
-            let captureAfter = index + 3 < CommandLine.arguments.count
-                ? (Double(CommandLine.arguments[index + 3]) ?? 0.68) : 0.68
+            let captureAfter = index + 3 < developerCommands.arguments.count
+                ? (Double(developerCommands.arguments[index + 3]) ?? 0.68) : 0.68
             DispatchQueue.main.asyncAfter(deadline: .now() + captureAfter) {
                 let passed = hud.writeSnapshotForTesting(to: destination)
                 print("VOICE_MODE_SNAPSHOT \(passed ? "PASS" : "FAIL") \(rawMode)")
@@ -257,7 +256,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Sample the real panel in the middle of its 160 ms exit. The same particle pose must
         // remain a mode symbol until orderOut; snapping it back to a sphere makes this fail.
-        if CommandLine.arguments.contains("--test-voice-mode-icon-exit") {
+        if developerCommands.has("--test-voice-mode-icon-exit") {
             NSApp.setActivationPolicy(.prohibited)
             let config = ConfigStore.loadConfig()
             let hud = VoicePipelineHUDController(layers: config.settings.layers,
@@ -276,14 +275,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // pixel-level screenshot avoids relying on the production sub-second dwell, while still
         // rendering the exact same controller and presentation vocabulary. No remote, microphone,
         // network, or text-delivery target is opened.
-        if let stateIndex = CommandLine.arguments.firstIndex(of: "--test-voice-pipeline-hud-state"),
-           stateIndex + 1 < CommandLine.arguments.count {
+        if let stateIndex = developerCommands.arguments.firstIndex(of: "--test-voice-pipeline-hud-state"),
+           stateIndex + 1 < developerCommands.arguments.count {
             NSApp.setActivationPolicy(.accessory)
             let config = ConfigStore.loadConfig()
             let hud = VoicePipelineHUDController(layers: config.settings.layers,
                                                  icons: config.settings.icons, enabled: true)
             voicePipelineHUD = hud
-            switch CommandLine.arguments[stateIndex + 1].lowercased() {
+            switch developerCommands.arguments[stateIndex + 1].lowercased() {
             case "copied":
                 hud.showNativeDictationPhase(
                     .copied, message: L("Insertion was unavailable · copied instead")
@@ -300,21 +299,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Isolated visual QC for the temporary native-Voice capsule. It uses deterministic
         // acoustic features and every Final stage, but opens no microphone/HID/network resource.
-        if CommandLine.arguments.contains("--test-voice-pipeline-hud")
-            || CommandLine.arguments.contains("--test-voice-pipeline-hud-long")
-            || CommandLine.arguments.contains("--test-voice-pipeline-hud-interrupt")
-            || CommandLine.arguments.contains("--test-voice-pipeline-hud-interrupt-long") {
+        if developerCommands.has("--test-voice-pipeline-hud")
+            || developerCommands.has("--test-voice-pipeline-hud-long")
+            || developerCommands.has("--test-voice-pipeline-hud-interrupt")
+            || developerCommands.has("--test-voice-pipeline-hud-interrupt-long") {
             NSApp.setActivationPolicy(.accessory)
             let config = ConfigStore.loadConfig()
             let hud = VoicePipelineHUDController(layers: config.settings.layers,
                                                  icons: config.settings.icons, enabled: true)
             voicePipelineHUD = hud
-            let long = CommandLine.arguments.contains("--test-voice-pipeline-hud-long")
-            let interruptLong = CommandLine.arguments.contains(
+            let long = developerCommands.has("--test-voice-pipeline-hud-long")
+            let interruptLong = developerCommands.has(
                 "--test-voice-pipeline-hud-interrupt-long"
             )
             let interrupt = interruptLong
-                || CommandLine.arguments.contains("--test-voice-pipeline-hud-interrupt")
+                || developerCommands.has("--test-voice-pipeline-hud-interrupt")
             if interrupt {
                 // Stress the compositor with transitions faster than their authored 220–280 ms
                 // lifetime, an exit interrupted by a new capture, and Streaming's direct release.
@@ -445,7 +444,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // text field before launching this flag. It opens no microphone, network or remote input;
         // it only sends a fixed non-secret probe through the exact Final delivery chain and prints
         // the route outcome. Production never reaches this branch.
-        if CommandLine.arguments.contains("--test-voice-final-delivery") {
+        if developerCommands.has("--test-voice-final-delivery") {
             NSApp.setActivationPolicy(.accessory)
             let deliverer = VoiceTextDeliverer()
             let settings = ConfigStore.loadConfig().settings.dictation
@@ -475,7 +474,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Headless visual QC for the optional persistent status surface. It cycles through the
         // resting Layer, a real Music app icon, a track action, and another Layer without touching
         // the remote, rcd, Accessibility, or any input device.
-        if CommandLine.arguments.contains("--test-status-widget") {
+        if developerCommands.has("--test-status-widget") {
             NSApp.setActivationPolicy(.accessory)
             let config = ConfigStore.loadConfig()
             let widget = StatusWidgetController(layers: config.settings.layers,
@@ -483,13 +482,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             statusWidget = widget
             widget.setLayer(nil, animated: false)
             widget.setConnected(true, animated: false)
-            let slowVisualQC = CommandLine.arguments.contains("--test-status-widget-long")
+            let slowVisualQC = developerCommands.has("--test-status-widget-long")
             let beat: TimeInterval = slowVisualQC ? 10.0 : 3.0
             // Pin one requested face for deterministic pixel inspection. This exists because
             // screenshot permission round-trips can outlast the production sub-second dwell.
-            if let stateIndex = CommandLine.arguments.firstIndex(of: "--test-status-widget-state"),
-               stateIndex + 1 < CommandLine.arguments.count {
-                let requestedState = CommandLine.arguments[stateIndex + 1].lowercased()
+            if let stateIndex = developerCommands.arguments.firstIndex(of: "--test-status-widget-state"),
+               stateIndex + 1 < developerCommands.arguments.count {
+                let requestedState = developerCommands.arguments[stateIndex + 1].lowercased()
                 let dwell: TimeInterval = slowVisualQC
                     ? (requestedState == "back-hold" ? 260.0 : 55.0)
                     : 12.0
@@ -1020,10 +1019,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Headless visual QC: `--test-connect-hud` shows the connect/disconnect HUDs so they can be
         // screenshotted, then exits — without seizing the remote or wiring up the rest of the app.
-        if CommandLine.arguments.contains("--test-connect-hud")
-            || CommandLine.arguments.contains("--test-connect-hud-long") {
+        if developerCommands.has("--test-connect-hud")
+            || developerCommands.has("--test-connect-hud-long") {
             NSApp.setActivationPolicy(.accessory)
-            let interval: TimeInterval = CommandLine.arguments.contains("--test-connect-hud-long")
+            let interval: TimeInterval = developerCommands.has("--test-connect-hud-long")
                 ? 8.0 : 2.2
             let hud = LayerHUD(holdDuration: interval + 0.55)
             layerHUD = hud
@@ -1038,7 +1037,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Headless visual QC for Select's exact timing contract: the water vessel appears at the
         // 0.18 s visual lead-in and rises toward the unchanged 0.5 s sticky-drag boundary. This
         // path creates only the HUD; it never starts HID detection or emits a mouse event.
-        if CommandLine.arguments.contains("--test-select-hold-hud") {
+        if developerCommands.has("--test-select-hold-hud") {
             NSApp.setActivationPolicy(.accessory)
             let hud = HoldProgressHUD()
             holdHUD = hud
@@ -1063,7 +1062,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // the production 0.5 s action boundary and confirms shortly afterwards, exercising both
         // the nine-dot entrance and the rule that release must not replay it. No launcher opens and
         // no input event is emitted.
-        if CommandLine.arguments.contains("--test-app-wheel-hold-hud") {
+        if developerCommands.has("--test-app-wheel-hold-hud") {
             NSApp.setActivationPolicy(.accessory)
             let hud = HoldProgressHUD()
             holdHUD = hud
@@ -1087,10 +1086,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Headless visual QC for the exact production Back ladder in the large water HUD. Stages
         // are stretched only for capture: Delete must be blue, Close/Quit system red, and Cancel
         // neutral, with native symbol layers replacing one another in place.
-        if CommandLine.arguments.contains("--test-back-hold-hud")
-            || CommandLine.arguments.contains("--test-back-hold-hud-long") {
+        if developerCommands.has("--test-back-hold-hud")
+            || developerCommands.has("--test-back-hold-hud-long") {
             NSApp.setActivationPolicy(.accessory)
-            let longCapture = CommandLine.arguments.contains("--test-back-hold-hud-long")
+            let longCapture = developerCommands.has("--test-back-hold-hud-long")
             let segment: TimeInterval = longCapture ? 8.0 : 1.6
             let hud = HoldProgressHUD()
             holdHUD = hud
@@ -1127,7 +1126,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Headless visual QC: `--test-hold-hud` runs a hold from 0 through every stage so the
         // progress card can be screenshotted, then exits — without seizing the remote. Uses real
         // actions so the icon resolution (app icons vs SF Symbols) is exercised too.
-        if CommandLine.arguments.contains("--test-hold-hud") {
+        if developerCommands.has("--test-hold-hud") {
             NSApp.setActivationPolicy(.accessory)
             let hud = HoldProgressHUD()
             holdHUD = hud
@@ -1168,7 +1167,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Headless visual QC: `--test-drag-badge` pins the drag badge beside the pointer for a few
         // seconds so it can be screenshotted, then exits — without seizing the remote.
-        if CommandLine.arguments.contains("--test-drag-badge") {
+        if developerCommands.has("--test-drag-badge") {
             NSApp.setActivationPolicy(.accessory)
             let badge = DragIndicator()
             dragIndicator = badge
@@ -1180,7 +1179,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Headless visual QC: `--test-app-wheel` shows the launcher with a sector highlighted so
         // it can be screenshotted, then exits — without seizing the remote or launching anything.
-        if CommandLine.arguments.contains("--test-app-wheel") {
+        if developerCommands.has("--test-app-wheel") {
             NSApp.setActivationPolicy(.accessory)
             let wheel = AppWheelController()
             appWheel = wheel
@@ -1207,10 +1206,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Read-only CoreBluetooth inventory. Keep this path headless and separate from the normal
         // IOHID detector so it cannot seize the remote while GATT services are being mapped.
-        if let idx = CommandLine.arguments.firstIndex(of: "--dump-gatt"),
-           idx + 1 < CommandLine.arguments.count {
+        if let idx = developerCommands.arguments.firstIndex(of: "--dump-gatt"),
+           idx + 1 < developerCommands.arguments.count {
             NSApp.setActivationPolicy(.accessory)
-            let diagnostic = GATTDiagnostics(targetName: CommandLine.arguments[idx + 1])
+            let diagnostic = GATTDiagnostics(targetName: developerCommands.arguments[idx + 1])
             gattDiagnostics = diagnostic
             diagnostic.start()
             return
@@ -1238,7 +1237,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize controllers
         let cursorController = CursorController()
 
-        remoteInputHandler = RemoteInputHandler(
+        runtime.remoteInputHandler = RemoteInputHandler(
             cursorController: cursorController,
             menuBarManager: menuBarManager
         )
@@ -1361,17 +1360,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             self.setDemoRemoteEnabled(!(self.demoModeWindow?.isVisible ?? false))
         }
-        remoteInputHandler?.onPhysicalButtonStateChanged = { [weak self] rawName, pressed in
+        runtime.remoteInputHandler?.onPhysicalButtonStateChanged = { [weak self] rawName, pressed in
             self?.demoModeWindow?.setPhysicalButton(rawName, pressed: pressed)
         }
-        remoteInputHandler?.onPhysicalButtonStateReset = { [weak self] in
+        runtime.remoteInputHandler?.onPhysicalButtonStateReset = { [weak self] in
             self?.demoModeWindow?.resetPhysicalButtons()
         }
         // Convenience: `./HyperVibe --settings` pops the window open immediately.
-        if CommandLine.arguments.contains("--settings") {
+        if developerCommands.has("--settings") {
             DispatchQueue.main.async { settingsWin.show() }
         }
-        if CommandLine.arguments.contains("--system-check") {
+        if developerCommands.has("--system-check") {
             DispatchQueue.main.async { [weak self] in self?.showSetupWizard() }
         }
 
@@ -1393,7 +1392,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             executor: actionExecutor
         )
         controller = engineController
-        remoteInputHandler?.controller = engineController
+        runtime.remoteInputHandler?.controller = engineController
         engineController.onActionHandled = { [weak persistentStatus] handled in
             persistentStatus?.showAction(handled)
         }
@@ -1408,7 +1407,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // key would resolve against a missing layer (→ nil → all bindings dead) with no way to
             // pop it. Do this BEFORE reload so the pop lands on the old engine cleanly.
             if let layer = self?.controller?.currentLayer, reloaded.modes[layer] == nil {
-                self?.remoteInputHandler?.clearStickyLayer()
+                self?.runtime.remoteInputHandler?.clearStickyLayer()
             }
             self?.controller?.reload(config: reloaded)
             // reload() resets the engine to the default mode; re-apply the current frontmost app so
@@ -1450,7 +1449,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Start touch handler for trackpad (before remote detection so we can wire the callback)
         let touch = TouchHandler(cursorController: cursorController)
-        touchHandler = touch
+        runtime.touchHandler = touch
         touch.scrollScale = menuBarManager.scrollSpeed.scale
         // The outer-ring gesture is vertical in the base layer and horizontal in Layer 1. Listen to
         // Controller rather than only the sticky-layer HUD callback so momentary L1 holds work too.
@@ -1464,7 +1463,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Swipes are config-driven only. An unbound swipe does nothing — no native fallback,
             // so HyperVibe's Claude-Code default swipe keys (e.g. right = Shift+Tab) no longer
             // fire and cause the system beep. Bind swipe.<dir> in the config to use them.
-            self?.remoteInputHandler?.noteLayerUsedByOtherInput()   // swipe while holding a layer = use
+            self?.runtime.remoteInputHandler?.noteLayerUsedByOtherInput()   // swipe while holding a layer = use
             let key = "swipe.\(direction.rawValue)"
             if self?.controller?.handle(InputEvent(key: key)) == true {
                 print("👆 \(key) (config)")
@@ -1472,7 +1471,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         touch.onTwoFingerTap = { [weak self] in
             // Config-driven only: unbound two-finger tap does nothing. Bind tap.two to use it.
-            self?.remoteInputHandler?.noteLayerUsedByOtherInput()
+            self?.runtime.remoteInputHandler?.noteLayerUsedByOtherInput()
             if self?.controller?.handle(InputEvent(key: "tap.two")) == true {
                 print("👐 tap.two (config)")
             }
@@ -1482,7 +1481,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Layer HUD: show a macOS-style overlay when a sticky layer toggles on/off.
         let hud = LayerHUD(layers: config.settings.layers, icons: config.settings.icons)
         layerHUD = hud
-        remoteInputHandler?.onLayerToggle = { [weak self, weak hud] on, name in
+        runtime.remoteInputHandler?.onLayerToggle = { [weak self, weak hud] on, name in
             guard self?.layerHUDEnabled == true else { return }
             on ? hud?.showOn(name) : hud?.showOff(name)
         }
@@ -1499,7 +1498,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             progress = nil
             print("🪶 Hold HUD disabled at launch — prewarm skipped")
         }
-        remoteInputHandler?.onHoldBegan = { [weak self, weak persistentStatus] startedAt, base, stages in
+        runtime.remoteInputHandler?.onHoldBegan = { [weak self, weak persistentStatus] startedAt, base, stages in
             persistentStatus?.beginHold(startedAt: startedAt, base: base, stages: stages)
             guard self?.holdHUDEnabled == true else { return }
             func face(_ action: Action, _ p: Config.Presentation?) -> HoldProgressHUD.Face {
@@ -1515,13 +1514,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                return .init(threshold: $0.threshold, face: f)
                            })
         }
-        remoteInputHandler?.onHoldEnded = { [weak persistentStatus] firedIndex in
+        runtime.remoteInputHandler?.onHoldEnded = { [weak persistentStatus] firedIndex in
             // `end` is safe even when the large HUD was disabled; calling it unconditionally also
             // dismisses a HUD immediately if the user switches that preference off mid-hold.
             progress?.end(firedIndex: firedIndex)
             persistentStatus?.endHold(firedIndex: firedIndex)
         }
-        remoteInputHandler?.onContinuousActionBegan = {
+        runtime.remoteInputHandler?.onContinuousActionBegan = {
             [weak self, weak persistentStatus, weak model] handled in
             let externalVoiceAttempt: Bool
             switch handled.action {
@@ -1550,49 +1549,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             persistentStatus?.beginContinuousAction(handled)
         }
-        remoteInputHandler?.onContinuousActionEnded = { [weak self, weak persistentStatus] key in
+        runtime.remoteInputHandler?.onContinuousActionEnded = { [weak self, weak persistentStatus] key in
             self?.voiceCorpusRecorder?.end(actionKey: key)
             self?.builtinMicFeeder?.setVoiceMetering(false)
             persistentStatus?.endContinuousAction(key: key)
         }
         // Native dictation starts its expensive work on the raw press edge. The handler still owns
         // tap/hold disambiguation, so a quick side-button tap never flashes Voice or inserts audio.
-        remoteInputHandler?.shouldUseNativeDictation = { [weak self, weak model] in
+        runtime.remoteInputHandler?.shouldUseNativeDictation = { [weak self, weak model] in
             guard self?.voiceDictation != nil,
                   let settings = model?.tune.dictation else { return false }
             return settings.resolvedOutputMode(for: nil) != nil
         }
-        remoteInputHandler?.onNativeDictationPrimed = {
+        runtime.remoteInputHandler?.onNativeDictationPrimed = {
             [weak dictation, weak model] handled in
             guard let settings = model?.tune.dictation.resolvedSettings(for: nil)
             else { return .unavailable }
             return dictation?.prime(handled, settings: settings) ?? .unavailable
         }
-        remoteInputHandler?.onNativeDictationBegan = { [weak dictation] in
+        runtime.remoteInputHandler?.onNativeDictationBegan = { [weak dictation] in
             dictation?.beginListening()
         }
-        remoteInputHandler?.onNativeDictationCancelled = { [weak dictation] in
+        runtime.remoteInputHandler?.onNativeDictationCancelled = { [weak dictation] in
             dictation?.cancelPrime()
         }
-        remoteInputHandler?.onNativeDictationEnded = { [weak dictation] in
+        runtime.remoteInputHandler?.onNativeDictationEnded = { [weak dictation] in
             dictation?.finishListening()
         }
-        remoteInputHandler?.onNativeDictationMisconfigured = { [weak dictation] in
+        runtime.remoteInputHandler?.onNativeDictationMisconfigured = { [weak dictation] in
             dictation?.reportConfigurationError(VoiceAPIError.missingOpenAIKeyMessage)
         }
-        remoteInputHandler?.shouldCopyLastNativeDictationOnDouble = { [weak self, weak model] in
+        runtime.remoteInputHandler?.shouldCopyLastNativeDictationOnDouble = { [weak self, weak model] in
             guard self?.voiceDictation != nil,
                   let settings = model?.tune.dictation else { return false }
             return settings.copyLastOnSideButtonDouble
                 && settings.resolvedOutputMode(for: nil) != nil
         }
-        remoteInputHandler?.onCopyLastNativeDictation = { [weak dictation] in
+        runtime.remoteInputHandler?.onCopyLastNativeDictation = { [weak dictation] in
             dictation?.copyLastTranscript() == true
         }
-        remoteInputHandler?.shouldUseVoiceModeCycleChord = { [weak self, weak model] in
+        runtime.remoteInputHandler?.shouldUseVoiceModeCycleChord = { [weak self, weak model] in
             self?.voiceDictation != nil && model?.tune.dictation.enabled == true
         }
-        remoteInputHandler?.onVoiceModeCycleRequested = {
+        runtime.remoteInputHandler?.onVoiceModeCycleRequested = {
             [weak self, weak model, weak persistentStatus, weak pipelineHUD] in
             guard let self, let model else { return }
             var tune = model.tune
@@ -1650,7 +1649,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let dragBadge = DragIndicator()
         dragIndicator = dragBadge
-        remoteInputHandler?.onStickyDrag = { [weak self, weak dragBadge] on in
+        runtime.remoteInputHandler?.onStickyDrag = { [weak self, weak dragBadge] on in
             guard self?.dragIndicatorEnabled == true else {
                 dragBadge?.hide()
                 return
@@ -1660,10 +1659,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // `--touch-monitor`: open the live view alongside normal operation, so the remote keeps
         // working while its raw data is on screen. Read-only; it only observes.
-        if CommandLine.arguments.contains("--touch-monitor") {
+        if developerCommands.has("--touch-monitor") {
             let monitor = TouchMonitorWindowController()
             touchMonitor = monitor
-            if let size = touchHandler?.surfaceDimensions { monitor.model.surface = size }
+            if let size = runtime.touchHandler?.surfaceDimensions { monitor.model.surface = size }
             refreshRawTouchObserver()
             DispatchQueue.main.async { monitor.show() }
         }
@@ -1677,45 +1676,45 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             wheel.open()
             RemoteInputHandler.isAppWheelOpen = wheel.isOpen
         }
-        remoteInputHandler?.onAppWheelButton = { [weak self] button in
+        runtime.remoteInputHandler?.onAppWheelButton = { [weak self] button in
             guard let wheel = self?.appWheel else { return }
             if button == "select" { wheel.commit() } else { wheel.cancel() }
             RemoteInputHandler.isAppWheelOpen = wheel.isOpen
         }
 
         cursorHighlighter = CursorHighlighter()
-        touchHandler?.onShake = { [weak self] in
+        runtime.touchHandler?.onShake = { [weak self] in
             guard let self = self, self.findCursorEnabled else { return }
             self.cursorHighlighter?.flash()
         }
-        touchHandler?.start()
+        runtime.touchHandler?.start()
         // Focus-follows-cursor, restricted to fullscreen windows. Created before applyTune so the
         // config's value is what switches it on — it starts disabled and never self-enables.
         focusFollower = FocusFollowsCursor()
-        applyTune(model.tune)   // touchHandler + remoteInputHandler now exist — push the tuning
+        applyTune(model.tune)   // runtime.touchHandler + runtime.remoteInputHandler now exist — push the tuning
         // Explicit developer/demo launch is a one-run visibility override. Ordinary launch,
         // menu-bar control, Settings and hot reload all use settings.demoRemoteEnabled.
-        if CommandLine.arguments.contains("--demo-mode") {
+        if developerCommands.has("--demo-mode") {
             DispatchQueue.main.async { [weak self] in
                 self?.ensureDemoModeWindow().show()
             }
         }
-        remoteInputHandler?.onButtonActivity = { [weak self] in
-            self?.touchHandler?.tryReconnectTrackpad()
+        runtime.remoteInputHandler?.onButtonActivity = { [weak self] in
+            self?.runtime.touchHandler?.tryReconnectTrackpad()
         }
         
         // Start remote detection
-        remoteDetector = RemoteDetector { [weak self] event in
+        runtime.remoteDetector = RemoteDetector { [weak self] event in
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 let connected = event.isConnected
                 switch event {
                 case let .added(device, _):
-                    self.remoteInputHandler?.setRemoteDevice(device)
+                    self.runtime.remoteInputHandler?.setRemoteDevice(device)
                 case let .removed(device, _):
-                    self.remoteInputHandler?.removeRemoteDevice(device)
+                    self.runtime.remoteInputHandler?.removeRemoteDevice(device)
                 case .reset:
-                    self.remoteInputHandler?.setRemoteDevice(nil)
+                    self.runtime.remoteInputHandler?.setRemoteDevice(nil)
                 }
                 self.menuBarManager.updateConnectionStatus(connected: connected)
                 self.settingsModel?.connected = connected
@@ -1745,9 +1744,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        remoteDetector?.startDetection()
+        runtime.remoteDetector?.startDetection()
 
-        if CommandLine.arguments.contains("--native-ptt") {
+        if developerCommands.has("--native-ptt") {
             // Let all seven IOHID raw-report callbacks attach before the Apple driver starts its
             // native push-to-talk path. The continuously running process then captures any audio.
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
@@ -1755,15 +1754,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        if CommandLine.arguments.contains("--direct-ptt") {
+        if developerCommands.has("--direct-ptt") {
             // Wait for all seven virtual interfaces to enumerate, then hold the remote's hidden
             // one-byte PTT Feature report for a bounded 20-second capture window. The ambient audio
             // test can run unattended; cleanup also sends the release byte if the app exits early.
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                self?.remoteInputHandler?.setDirectPushToTalk(true)
+                self?.runtime.remoteInputHandler?.setDirectPushToTalk(true)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 22.0) { [weak self] in
-                self?.remoteInputHandler?.setDirectPushToTalk(false)
+                self?.runtime.remoteInputHandler?.setDirectPushToTalk(false)
             }
         }
         
@@ -1781,19 +1780,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if config.settings.dictation.enabled { micFeeder.prepareVoiceCapture() }
 
         // Start media key interceptor
-        mediaKeyInterceptor = MediaKeyInterceptor()
-        mediaKeyInterceptor?.onMediaKey = { [weak self] keyType in
+        runtime.mediaKeyInterceptor = MediaKeyInterceptor()
+        runtime.mediaKeyInterceptor?.onMediaKey = { [weak self] keyType in
             guard let self = self else { return false }
             return self.handleInterceptedMediaKey(keyType)
         }
-        mediaKeyInterceptor?.start()
+        runtime.mediaKeyInterceptor?.start()
     }
 
     /// Raw touch snapshots cost an allocation and a main-thread publication per frame. Keep that
     /// diagnostic/presentation tap completely detached during ordinary remote use, and multiplex it
     /// only while one of the two live visual surfaces actually needs it.
     private func refreshRawTouchObserver() {
-        guard let touchHandler = touchHandler else { return }
+        guard let touchHandler = runtime.touchHandler else { return }
         let demoVisible = demoModeWindow?.isVisible == true
         let monitorPresent = touchMonitor != nil
         guard demoVisible || monitorPresent else {
@@ -1825,22 +1824,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Settings callbacks are intentionally plain closures, while the latency state machine is
         // main-actor isolated. Hop explicitly instead of weakening its isolation guarantees.
-        touchHandler?.cursorSpeed = CGFloat(t.cursorSpeed)
-        touchHandler?.cursorDeadzone = CGFloat(t.cursorDeadzone)
-        touchHandler?.accelMin = CGFloat(t.accelMin)
-        touchHandler?.accelMax = CGFloat(t.accelMax)
-        touchHandler?.accelLowSpeed = CGFloat(t.accelLowSpeed)
-        touchHandler?.accelHighSpeed = CGFloat(t.accelHighSpeed)
-        touchHandler?.accelCurve = CGFloat(t.accelCurve)
-        touchHandler?.clickRiseThreshold = t.clickRiseThreshold
-        touchHandler?.pressMoveMax = t.pressMoveMax
-        touchHandler?.circularConfig = t.circularConfig
-        remoteInputHandler?.holdThreshold = t.holdThreshold
-        remoteInputHandler?.holdThreshold2 = t.holdThreshold2
-        remoteInputHandler?.holdThreshold3 = t.holdThreshold3
-        remoteInputHandler?.holdCancelGrace = t.holdCancelGrace
-        remoteInputHandler?.doubleTapWindow = t.doubleTapWindow
-        remoteInputHandler?.spacesModeWindow = t.spacesModeWindow
+        runtime.touchHandler?.cursorSpeed = CGFloat(t.cursorSpeed)
+        runtime.touchHandler?.cursorDeadzone = CGFloat(t.cursorDeadzone)
+        runtime.touchHandler?.accelMin = CGFloat(t.accelMin)
+        runtime.touchHandler?.accelMax = CGFloat(t.accelMax)
+        runtime.touchHandler?.accelLowSpeed = CGFloat(t.accelLowSpeed)
+        runtime.touchHandler?.accelHighSpeed = CGFloat(t.accelHighSpeed)
+        runtime.touchHandler?.accelCurve = CGFloat(t.accelCurve)
+        runtime.touchHandler?.clickRiseThreshold = t.clickRiseThreshold
+        runtime.touchHandler?.pressMoveMax = t.pressMoveMax
+        runtime.touchHandler?.circularConfig = t.circularConfig
+        runtime.remoteInputHandler?.holdThreshold = t.holdThreshold
+        runtime.remoteInputHandler?.holdThreshold2 = t.holdThreshold2
+        runtime.remoteInputHandler?.holdThreshold3 = t.holdThreshold3
+        runtime.remoteInputHandler?.holdCancelGrace = t.holdCancelGrace
+        runtime.remoteInputHandler?.doubleTapWindow = t.doubleTapWindow
+        runtime.remoteInputHandler?.spacesModeWindow = t.spacesModeWindow
         findCursorEnabled = t.findCursorEnabled
         if t.corpusCaptureEnabled, voiceCorpusRecorder == nil {
             let recorder = ensureVoiceCorpusRecorder()
@@ -1852,9 +1851,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Loc.shared.apply(configValue: t.interfaceLanguage)
         // Visual-QC only: render the installed App in another supported language without writing
         // the user's config.jsonc or legacy defaults. Production launches never pass this flag.
-        if let languageIndex = CommandLine.arguments.firstIndex(of: "--test-interface-language"),
-           languageIndex + 1 < CommandLine.arguments.count,
-           let language = AppLanguage(rawValue: CommandLine.arguments[languageIndex + 1]) {
+        if let languageIndex = developerCommands.arguments.firstIndex(of: "--test-interface-language"),
+           languageIndex + 1 < developerCommands.arguments.count,
+           let language = AppLanguage(rawValue: developerCommands.arguments[languageIndex + 1]) {
             Loc.shared.choose(language)
         }
         let automaticUpdateChecks = t.automaticUpdateChecksEnabled
@@ -2135,8 +2134,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Synchronously, not through `stopDetection`'s device callback: that reaches
         // `releaseAllHeldKeys` via `DispatchQueue.main.async`, which may never run during
         // termination. Anything system-visible has to be undone on this thread, now.
-        remoteInputHandler?.setRemoteDevice(nil)
-        remoteInputHandler?.endStickyDrag()
+        runtime.remoteInputHandler?.setRemoteDevice(nil)
+        runtime.remoteInputHandler?.endStickyDrag()
         // Device teardown closes any live held shortcut first. Corpus writes are normally
         // asynchronous, so explicitly drain them before the process can disappear.
         voiceCorpusRecorder?.flushForTermination()
@@ -2151,15 +2150,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             persistTuneToConfig()
         }
 
-        if CommandLine.arguments.contains("--native-ptt") {
+        if developerCommands.has("--native-ptt") {
             NativePushToTalk.setEnabled(false)
         }
-        if CommandLine.arguments.contains("--direct-ptt") {
-            remoteInputHandler?.setDirectPushToTalk(false)
+        if developerCommands.has("--direct-ptt") {
+            runtime.remoteInputHandler?.setDirectPushToTalk(false)
         }
-        touchHandler?.stop()
-        remoteDetector?.stopDetection()
-        mediaKeyInterceptor?.stop()
+        runtime.stopPassiveInput()
         // Drop producerActive in the shm ring so a consumer never waits on a dead producer
         // (stop() is idempotent — cleanup runs on both termination paths).
         builtinMicFeeder?.stop()
@@ -2258,14 +2255,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if previousInputMonitoringGranted == false, current.inputMonitoring {
             // A manager opened while Input Monitoring was denied stays unusable. Recreate it as
             // soon as the user returns from System Settings — no app restart required.
-            remoteDetector?.stopDetection()
-            remoteDetector?.startDetection()
+            runtime.remoteDetector?.stopDetection()
+            runtime.remoteDetector?.startDetection()
             rmDebug("🔐 Input Monitoring granted — HID detection reattached")
         }
         if previousAccessibilityGranted == false, current.accessibility {
             // CGEvent taps created before Accessibility was granted are nil. Rebuild only this tap.
-            mediaKeyInterceptor?.stop()
-            mediaKeyInterceptor?.start()
+            runtime.mediaKeyInterceptor?.stop()
+            runtime.mediaKeyInterceptor?.start()
             rmDebug("🔐 Accessibility granted — media event tap reattached")
         }
 
