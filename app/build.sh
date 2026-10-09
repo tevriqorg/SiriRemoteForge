@@ -131,7 +131,7 @@ if [ "${HYPERVIBE_STRICT_CONCURRENCY:-0}" = "1" ]; then
 fi
 swift build "${CORE_BUILD_ARGS[@]}"
 CORE_BIN_PATH="$(swift build --package-path "$CORE_PACKAGE" -c release --show-bin-path)"
-CORE_MODULE_PATH="$CORE_BIN_PATH/Modules"
+CORE_MODULE_PATH="$( [ -d "$CORE_BIN_PATH/Modules" ] && echo "$CORE_BIN_PATH/Modules" || echo "$CORE_BIN_PATH" )"
 CORE_LIBRARY="$CORE_BIN_PATH/libSiriRemoteCore.a"
 test -e "$CORE_MODULE_PATH/SiriRemoteCore.swiftmodule" || { echo "Missing SiriRemoteCore module" >&2; exit 1; }
 test -f "$CORE_LIBRARY" || { echo "Missing SiriRemoteCore static library" >&2; exit 1; }
