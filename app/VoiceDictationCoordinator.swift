@@ -449,6 +449,7 @@ final class VoiceDictationCoordinator {
     /// Settings "Last-run" row always report the same actionable message.
     func reportConfigurationError(_ message: String) {
         guard active == nil, pendingReplacement == nil else { return }
+        rmDebug("🎙 voice CONFIG-ERROR reason=\(message)")
         runtime.livePreview = ""
         transition(.error, message: message)
         scheduleIdle(after: 2.2)
@@ -560,6 +561,7 @@ final class VoiceDictationCoordinator {
     /// same turn as a paired failure, but never wait for key-up and never reinterpret it as dictation.
     private func rejectVisibleSession(_ session: Session, message: String) {
         guard active?.id == session.id else { return }
+        rmDebug("🎙 voice REJECTED reason=\(message)")
         active = nil
         releaseRealtimeDrainWaiter(session)
         session.deltaFlushWork?.cancel()
@@ -1175,6 +1177,11 @@ final class VoiceDictationCoordinator {
         runtime.livePreview = ""
         active = nil
         onMeteringChanged?(false)
+        rmDebug(String(format: "🎙 voice FAILED source=%@ duration=%.3fs frames=%d error=%@",
+                       session.metrics.audioSource ?? "unknown",
+                       (session.metrics.audioDurationMilliseconds ?? 0) / 1_000,
+                       session.capture.frameCountSoFar,
+                       String(describing: error)))
         transition(.error, message: VoiceAPIError.userFacingMessage(for: error))
         scheduleIdle(after: 2.2)
         startPrewarmIfNeeded()

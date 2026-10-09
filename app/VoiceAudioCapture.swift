@@ -97,6 +97,9 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
 
     private var capturedPCM = Data()
     private var capturedFrames = 0
+    /// Read-only peek for diagnostics: how much audio the ring has actually delivered so far.
+    /// Lets failure paths log the real captured amount without stopping the capture first.
+    var frameCountSoFar: Int { capturedFrames }
     private var sumSquares: Double = 0
     private var announcedFirstChunk = false
     private var announcedMinimumDuration = false
