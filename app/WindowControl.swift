@@ -103,6 +103,6 @@ enum WindowControl {
     }
 
     /// Neither is exposed as a public constant by ApplicationServices; both are documented names.
-    private static let attribute = "AXFullScreen" as CFString
-    private static let minimizedAttribute = "AXMinimized" as CFString
+    private static var attribute: CFString { "AXFullScreen" as CFString }
+    private static var minimizedAttribute: CFString { "AXMinimized" as CFString }
 }
