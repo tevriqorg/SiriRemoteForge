@@ -111,6 +111,12 @@ jobs:
               raise SystemExit('old pure state still present')
           p.write_text(s)
 
+          p = Path('app/VoiceInputSelfTest.swift')
+          s = p.read_text()
+          if 'import RemoteInputCore' not in s:
+              s = s.replace('import SiriRemoteCore\n', 'import SiriRemoteCore\nimport RemoteInputCore\n', 1)
+          p.write_text(s)
+
           old = Path('app/RemoteInputState.swift')
           if old.exists():
               old.unlink()
