@@ -2,7 +2,8 @@
 
 This is the **active** handoff for the tevriqorg fork. Historical upstream experiments, old release logs and superseded notes live under `deprecated/`; they are reference material, not current operating instructions.
 
-Last structural refresh: 2026-10-09.  
+Last structural refresh: 2026-10-09.
+
 Last content update: 2026-10-09.
 
 ## Current authority
@@ -29,7 +30,8 @@ Pure button/hold/repeat/multi-tap/layer/voice-chord state lives in `RemoteInputC
 
 Deterministic tests cover mirrored/overlapping remotes, disconnect/reset, hold boundaries, tap runs, layer state, repeat engagement and voice-chord transitions.
 
-Validated staging commit: `f75cbfdb956b63667fc6012406ca63f519f26488`.  
+Validated staging commit: `f75cbfdb956b63667fc6012406ca63f519f26488`.
+
 Landed into the R1 branch through **PR #9**.
 
 ### Phase 3 — App composition boundary
@@ -45,7 +47,8 @@ It also owns the single passive-input teardown boundary.
 
 `DeveloperCommandRouter` owns immutable developer/test/snapshot command-line routing. `SiriRemoteApp.swift` remains the AppKit composition root; no broad `@MainActor` annotation was used as a shortcut.
 
-Validated staging commit: `83425fbfbce2016b36eda0b4aac7fd045bb7504a`.  
+Validated staging commit: `83425fbfbce2016b36eda0b4aac7fd045bb7504a`.
+
 Landed into the R1 branch through **PR #10**.
 
 ### Phase 4 — concurrency ownership and teardown
@@ -61,7 +64,8 @@ The final ownership audit verifies:
 
 Two real `WindowControl` strict-concurrency warnings were eliminated by replacing shared stored `CFString` constants with computed values. The checked-in concurrency baseline was reduced by the same two entries; no suppression was added.
 
-Validated staging commit: `ba6f7e40a8271562c019413ba67ba131a39a3d12`.  
+Validated staging commit: `ba6f7e40a8271562c019413ba67ba131a39a3d12`.
+
 Landed into the R1 branch through **PR #11**.
 
 ## Actual R1 validation results
