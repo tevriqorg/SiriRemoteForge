@@ -22,7 +22,6 @@ SWIFT_FILES=(
     "MenuBarManager.swift"
     "UpdateManager.swift"
     "RemoteDetector.swift"
-    "RemoteInputState.swift"
     "RemoteInputHandler.swift"
     "GATTDiagnostics.swift"
     "NativePushToTalk.swift"
@@ -135,6 +134,20 @@ CORE_LIBRARY="$CORE_BIN_PATH/libSiriRemoteCore.a"
 test -e "$CORE_MODULE_PATH/SiriRemoteCore.swiftmodule" || { echo "Missing SiriRemoteCore module" >&2; exit 1; }
 test -f "$CORE_LIBRARY" || { echo "Missing SiriRemoteCore static library" >&2; exit 1; }
 
+# RemoteInputCore owns pure physical-input gesture state. HID callbacks/timers remain in App.
+REMOTE_INPUT_BUILD_ARGS=(--package-path "$CORE_PACKAGE" -c release --product RemoteInputCore)
+if [ "${HYPERVIBE_STRICT_CONCURRENCY:-0}" = "1" ]; then
+    REMOTE_INPUT_BUILD_ARGS+=(
+        -Xswiftc -warn-concurrency
+        -Xswiftc -strict-concurrency=complete
+        -Xswiftc -warnings-as-errors
+    )
+fi
+swift build "${REMOTE_INPUT_BUILD_ARGS[@]}"
+REMOTE_INPUT_LIBRARY="$CORE_BIN_PATH/libRemoteInputCore.a"
+test -e "$CORE_MODULE_PATH/RemoteInputCore.swiftmodule" || { echo "Missing RemoteInputCore module" >&2; exit 1; }
+test -f "$REMOTE_INPUT_LIBRARY" || { echo "Missing RemoteInputCore static library" >&2; exit 1; }
+
 # Compile the narrow login-keychain compatibility bridge once for both executables. Its source
 # scopes the deprecated declarations precisely; -Werror remains enabled for every other warning.
 clang -c -O2 -Wall -Wextra -Werror \
@@ -185,6 +198,7 @@ swiftc \
     "${SWIFT_FILES[@]}" \
     BuiltinMicRingWriter.o \
     "$CORE_LIBRARY" \
+    "$REMOTE_INPUT_LIBRARY" \
     -import-objc-header SiriRemote-Bridging-Header.h \
     -F "$SPARKLE_ROOT" \
     -framework Sparkle \
