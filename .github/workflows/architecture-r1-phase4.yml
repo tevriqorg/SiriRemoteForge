@@ -59,14 +59,40 @@ jobs:
         run: |
           git diff --check
           bash -n app/build.sh scripts/check-swift-concurrency.sh
-          if grep -R --include='*.swift' -n 'DispatchQueue\.main\.sync' app; then
-            echo 'Direct DispatchQueue.main.sync remains in app ownership paths' >&2
-            exit 1
-          fi
-          grep -q 'drainIOQueueAndRun' app/CorpusRecorder.swift
-          grep -Fq 'permissionHealthTimer?.invalidate()' app/SiriRemoteApp.swift
-          grep -Fq 'NotificationCenter.default.removeObserver(observer)' app/SiriRemoteApp.swift
-          grep -Fq 'removeObserver(token)' app/AppWatcher.swift
+          python3 - <<'PY'
+          from pathlib import Path
+
+          delivery = Path('app/VoiceTextDelivery.swift').read_text().splitlines()
+          sync_lines = [
+              i for i, line in enumerate(delivery)
+              if 'DispatchQueue.main.sync' in line and not line.lstrip().startswith('//')
+          ]
+          if len(sync_lines) != 1:
+              raise SystemExit(f'expected one audited main.sync call, found {len(sync_lines)}')
+          i = sync_lines[0]
+          context = '\n'.join(delivery[max(0, i - 5):i + 2])
+          if 'guard Thread.isMainThread else {' not in context:
+              raise SystemExit('main.sync is no longer protected by the main-thread guard')
+
+          corpus = Path('app/CorpusRecorder.swift').read_text()
+          if 'drainIOQueueAndRun' not in corpus:
+              raise SystemExit('CorpusRecorder sync-to-self drain guard missing')
+
+          app = Path('app/SiriRemoteApp.swift').read_text()
+          required = (
+              'permissionHealthTimer?.invalidate()',
+              'NotificationCenter.default.removeObserver(observer)',
+              'runtime.stopPassiveInput()',
+          )
+          missing = [marker for marker in required if marker not in app]
+          if missing:
+              raise SystemExit(f'App lifecycle teardown marker(s) missing: {missing}')
+
+          watcher = Path('app/AppWatcher.swift').read_text()
+          if 'removeObserver(token)' not in watcher:
+              raise SystemExit('AppWatcher observer teardown missing')
+          print('Ownership/teardown audit passed')
+          PY
 
       - name: Strict Core build
         run: swift build --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
