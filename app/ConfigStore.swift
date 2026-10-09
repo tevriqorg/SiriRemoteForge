@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  ConfigStore.swift
 //  HyperVibe (config engine integration)

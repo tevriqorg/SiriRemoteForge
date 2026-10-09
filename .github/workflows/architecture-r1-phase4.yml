@@ -1,0 +1,125 @@
+name: Architecture R1 Phase 4
+
+on:
+  push:
+    branches:
+      - 'chatgpt/architecture-r1-20261008'
+    paths:
+      - '.github/workflows/architecture-r1-phase4.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  concurrency-ownership:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt/architecture-r1-20261008
+          fetch-depth: 0
+
+      - name: Reduce checked-in concurrency debt
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('app/WindowControl.swift')
+          s = p.read_text()
+          old_a = '    private static let attribute = "AXFullScreen" as CFString\n'
+          old_m = '    private static let minimizedAttribute = "AXMinimized" as CFString\n'
+          if s.count(old_a) != 1 or s.count(old_m) != 1:
+              raise SystemExit('WindowControl concurrency-debt markers changed')
+          s = s.replace(old_a, '    private static var attribute: CFString { "AXFullScreen" as CFString }\n')
+          s = s.replace(old_m, '    private static var minimizedAttribute: CFString { "AXMinimized" as CFString }\n')
+          p.write_text(s)
+
+          baseline = Path('scripts/swift-concurrency-baseline.txt')
+          lines = baseline.read_text().splitlines()
+          targets = {
+              "static property 'attribute' is not concurrency-safe because non-'Sendable' type 'CFString' may have shared mutable state; this is an error in the Swift 6 language mode",
+              "static property 'minimizedAttribute' is not concurrency-safe because non-'Sendable' type 'CFString' may have shared mutable state; this is an error in the Swift 6 language mode",
+          }
+          removed = []
+          kept = []
+          for line in lines:
+              if line.startswith('1\tWindowControl.swift\t') and line.split('\t', 2)[2] in targets:
+                  removed.append(line)
+              else:
+                  kept.append(line)
+          if len(removed) != 2:
+              raise SystemExit(f'expected to shrink two WindowControl baseline entries, removed={len(removed)}')
+          baseline.write_text('\n'.join(kept) + '\n')
+          print('Removed concurrency baseline entries:')
+          print('\n'.join(removed))
+          PY
+
+      - name: Ownership and teardown audit
+        run: |
+          git diff --check
+          bash -n app/build.sh scripts/check-swift-concurrency.sh
+          python3 - <<'PY'
+          from pathlib import Path
+
+          delivery = Path('app/VoiceTextDelivery.swift').read_text().splitlines()
+          sync_lines = [
+              i for i, line in enumerate(delivery)
+              if 'DispatchQueue.main.sync' in line and not line.lstrip().startswith('//')
+          ]
+          if len(sync_lines) != 1:
+              raise SystemExit(f'expected one audited main.sync call, found {len(sync_lines)}')
+          i = sync_lines[0]
+          context = '\n'.join(delivery[max(0, i - 5):i + 2])
+          if 'guard Thread.isMainThread else {' not in context:
+              raise SystemExit('main.sync is no longer protected by the main-thread guard')
+
+          corpus = Path('app/CorpusRecorder.swift').read_text()
+          if 'drainIOQueueAndRun' not in corpus:
+              raise SystemExit('CorpusRecorder sync-to-self drain guard missing')
+
+          app = Path('app/SiriRemoteApp.swift').read_text()
+          required = (
+              'permissionHealthTimer?.invalidate()',
+              'NotificationCenter.default.removeObserver(observer)',
+              'runtime.stopPassiveInput()',
+          )
+          missing = [marker for marker in required if marker not in app]
+          if missing:
+              raise SystemExit(f'App lifecycle teardown marker(s) missing: {missing}')
+
+          watcher = Path('app/AppWatcher.swift').read_text()
+          if 'removeObserver(token)' not in watcher:
+              raise SystemExit('AppWatcher observer teardown missing')
+          print('Ownership/teardown audit passed')
+          PY
+
+      - name: Strict Core build
+        run: swift build --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+
+      - name: Strict Core tests
+        run: swift test --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+
+      - name: Strict App concurrency gate with smaller baseline
+        run: ./scripts/check-swift-concurrency.sh
+
+      - name: Build and sign staged App
+        run: |
+          cd app
+          ./build.sh
+          HYPERVIBE_SIGN_MODE=adhoc ./create_app_bundle.sh
+          codesign --verify --deep --strict --verbose=2 .build/HyperVibe-Dev.app
+
+      - name: Isolated Runtime Smoke
+        run: |
+          cd app
+          ./.build/HyperVibe-Dev.app/Contents/MacOS/HyperVibe --test-voice-input
+
+      - name: Push validated Phase 4 to staging ref
+        run: |
+          git config user.name "tevriq"
+          git config user.email "318064862+tevriq@users.noreply.github.com"
+          git add app/WindowControl.swift scripts/swift-concurrency-baseline.txt
+          git diff --cached --check
+          git commit -m "refactor: reduce R1 concurrency debt and verify ownership By ChatGPT"
+          git push origin HEAD:refs/heads/automation/architecture-r1-phase4-staging-20261009

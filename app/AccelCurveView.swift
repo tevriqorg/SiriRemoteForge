@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  AccelCurveView.swift
 //  HyperVibe (settings UI)

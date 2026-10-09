@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  StatusWidget.swift
 //  HyperVibe

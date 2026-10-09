@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  MenuBarManager.swift
 //  siriRemote

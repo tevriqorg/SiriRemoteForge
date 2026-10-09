@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  Brightness.swift
 //  HyperVibe (config engine integration)

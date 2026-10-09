@@ -1,150 +1,144 @@
 # HANDOFF — tevriqorg/SiriRemoteForge current development state
 
-This is the **active** handoff for the tevriqorg fork. Historical upstream experiments, release logs
-and superseded implementation notes are archived under `deprecated/`; they are reference material,
-not current operating instructions.
+This is the **active** handoff for the tevriqorg fork. Historical upstream experiments, old release logs and superseded notes live under `deprecated/`; they are reference material, not current operating instructions.
 
-Last structural refresh: 2026-09-23.
-Last content update: 2026-10-08.
+Last structural refresh: 2026-10-09.
 
-## Touch-input and synchronization hardening (2026-10-08)
+Last content update: 2026-10-09.
 
-Diagnosed from the running App's diagnostic log (`/tmp/hypervibe.log`), then merged to `main`.
+## Current authority
 
-**1. Idle touch-surface churn (the user-visible "stutter").** `TouchHandler.checkAndReconnect`
-treated *"no contact frame for `touchStarvationThreshold` (15 s)"* as remote sleep and called
-`stopAllDevices()` + `findAndReconcileDevices()` on **every** 2 s timer tick once past that window.
-Measured **3051 restarts in 13.7 h (~5000/day, one every 16 s)**, each doing a needless main-thread
-MTDeviceStop/Start. The device is present and reports as running, so silence is indistinguishable
-from ordinary idle. The starvation recovery is now **single-shot per quiet period**, re-armed only
-by a real contact frame (`count > 0`). After the fix a restart happens at most once per idle period
-following an actual touch; a session with no touch produces one restart after launch and then none
-(verified: 0 restarts across a 9-minute untouched window with button presses only). Genuine recovery
-paths are unchanged: device present-but-not-running, device-ID set change, the wake observer, the
-fast reconnect loop, and HID activity.
-
-**2. `main.sync` deadlock hazard.** `VoiceTextDeliveryWorker.currentFrontmostPID()` called
-`DispatchQueue.main.sync` unconditionally. Every current caller runs on the worker queue, so this is
-safe today, but any future call from the main thread would deadlock (main waiting on itself). It now
-reads AppKit directly on the main thread with an `assertionFailure` instead of deadlocking.
-
-**3. Corpus termination-drain deadlock hazard.** `VoiceCorpusRecorder.flushForTermination()` used
-`ioQueue.sync` three times; reached from its own queue it would deadlock. Routed through
-`drainIOQueueAndRun()`, which runs inline when already on `ioQueue` (queue specific key).
-
-**Deliberately NOT changed — these are specified behavior, not defects.** Corpus
-`interrupted_by_focus_change` (~20 % of attempts) and `interrupted_by_next_attempt` (~3 %) are
-mandated by `docs/voice-corpus.md`: "missing labels are preferred to wrong audio/text pairing".
-An attempt whose text cannot be target-verified inside the post-release window is closed without a
-label rather than risk mis-attributing another attempt's or another app's text. Raising that rate
-down would mean weakening the attribution guarantee, which is explicitly not wanted.
-
-Validation for the change: `swift build --package-path SiriRemoteCore` OK; `swift test` 135/135 pass;
-`cd app && ./build.sh` OK; staged `HyperVibe-Dev.app` passes strict nested `codesign --verify`.
-Merged to `main` (merge commit `b4aa0f3`), installed at `/Applications/HyperVibe.app`, previous
-bundle preserved as a rollback copy outside `/Applications`.
-
-## Repository identity
-
-- Development fork: `https://github.com/tevriqorg/SiriRemoteForge`
-- Canonical upstream for provenance only: `https://github.com/HOLODATA-COM/SiriRemoteForge`
+- Repository: `tevriqorg/SiriRemoteForge`
 - Default branch: `main`
-- Current development PR: **#1 — runtime lazy-loading + external Voice Corpus**
-- Local configuration remains `~/.config/siriremote/config.jsonc`.
-- Installed live App path remains `/Applications/HyperVibe.app` during real-device testing.
+- Current Architecture R1 integration PR: **#8**
+- R1 branch: `chatgpt/architecture-r1-20261008`
+- Local configuration: `~/.config/siriremote/config.jsonc`
+- Installed live App path during real-device testing: `/Applications/HyperVibe.app`
+- The source still uses the historical internal product name **HyperVibe**. Do not mix a product rename into the current architecture/signing work.
 
-The source still carries the historical internal name **HyperVibe**. Do not mix a product rename into
-the current runtime/corpus/signing migration.
+## Architecture R1 — completed on branch, 2026-10-09
 
-## Current build and signing identity
+Architecture R1 is no longer an unfinished experiment. All four implementation phases have passed their hosted-runner gates and the validated staging results have been landed back into the R1 branch.
 
-The fork no longer uses the upstream `siriRemote Local Signing` certificate/keychain as its local
-development identity.
+### Phase 1 — real Core module boundary
 
-Development packaging now uses:
+Production App builds and links the real SwiftPM `SiriRemoteCore` module instead of recompiling Core source files into the App module. CI protects that boundary so production source lists cannot regress to `../SiriRemoteCore/Sources` compilation.
 
-- default App bundle id: `org.tevriq.siriremoteforge`;
-- Credential Broker id: `<app-bundle-id>.CredentialBroker`;
-- developer signing: the developer's own `Apple Development:` certificate;
-- optional exact selector: `HYPERVIBE_SIGN_ID`;
-- optional bundle-id override: `HYPERVIBE_BUNDLE_ID`;
-- no silent ad-hoc fallback.
+### Phase 2 — physical-input state isolation
 
-`app/create_app_bundle.sh` auto-selects an Apple Development identity only when exactly one valid
-identity exists. Zero or multiple identities is a hard stop until the local machine supplies
-`HYPERVIBE_SIGN_ID`.
+Pure button/hold/repeat/multi-tap/layer/voice-chord state lives in `RemoteInputCore`; HID callbacks, timers and side effects stay in `RemoteInputHandler`.
 
-The main App and Credential Broker now derive their peer bundle identifiers dynamically rather than
-hard-coding `com.hypervibe.app`. Mutual trust is **Bundle ID + Apple Team ID**, not one exact leaf
-certificate: ordinary Apple Development certificate rotation remains valid, while a different Team
-using the same bundle id is rejected.
+Deterministic tests cover mirrored/overlapping remotes, disconnect/reset, hold boundaries, tap runs, layer state, repeat engagement and voice-chord transitions.
 
-The outer App intentionally remains without hardened runtime because the private MultitouchSupport
-callback path is incompatible with it. Nested Sparkle helpers retain hardened runtime.
+Validated staging commit: `f75cbfdb956b63667fc6012406ca63f519f26488`.
 
-### Identity migration consequence
+Landed into the R1 branch through **PR #9**.
 
-The first live install under the new certificate/bundle id is a genuine macOS code-identity change.
-Expect fresh checks/prompts for Accessibility, Input Monitoring and Microphone, plus a Launch at
-Login re-check. This is migration behavior, not by itself an App regression.
+### Phase 3 — App composition boundary
 
-## Development build must not replace stable App first
+`AppRuntime` owns the long-lived physical-input subsystem graph:
 
-Compilation/package verification happens before touching the user's working stable installation.
+- `RemoteDetector`
+- `RemoteInputHandler`
+- `MediaKeyInterceptor`
+- `TouchHandler`
 
-Recommended staging:
+It also owns the single passive-input teardown boundary.
+
+`DeveloperCommandRouter` owns immutable developer/test/snapshot command-line routing. `SiriRemoteApp.swift` remains the AppKit composition root; no broad `@MainActor` annotation was used as a shortcut.
+
+Validated staging commit: `83425fbfbce2016b36eda0b4aac7fd045bb7504a`.
+
+Landed into the R1 branch through **PR #10**.
+
+### Phase 4 — concurrency ownership and teardown
+
+The final ownership audit verifies:
+
+- the remaining `DispatchQueue.main.sync` in `VoiceTextDelivery` is protected by a main-thread guard, so it cannot sync main-to-main;
+- Corpus termination draining uses the queue-aware `drainIOQueueAndRun()` path;
+- permission-health Timer invalidation is present;
+- Notification observers are removed during App teardown;
+- `AppWatcher` removes its workspace observer;
+- `AppRuntime.stopPassiveInput()` is the passive-input shutdown boundary.
+
+Two real `WindowControl` strict-concurrency warnings were eliminated by replacing shared stored `CFString` constants with computed values. The checked-in concurrency baseline was reduced by the same two entries; no suppression was added.
+
+Validated staging commit: `ba6f7e40a8271562c019413ba67ba131a39a3d12`.
+
+Landed into the R1 branch through **PR #11**.
+
+## Actual R1 validation results
+
+The final Phase 4 gate passed:
+
+- ownership/teardown audit;
+- strict `SiriRemoteCore` build;
+- strict `SiriRemoteCore` tests;
+- strict App concurrency diagnostics against the smaller baseline;
+- ordinary App build;
+- ad-hoc development bundle assembly;
+- strict nested `codesign --verify`;
+- isolated staged-bundle Runtime Smoke: `--test-voice-input`.
+
+Phase 2 and Phase 3/4 independently passed the same Core/App/concurrency/build/signing gates before their staging commits were merged back into R1.
+
+### Explicit hosted-runner limitation
+
+GitHub-hosted macOS runners do **not** validate real Siri Remote HID ownership, microphone hardware, macOS TCC grants, Launch at Login identity migration, or coexistence/competition with an already-installed stable HyperVibe. Those are intentionally left for the local-device smoke. Do not describe them as CI-verified.
+
+## Local candidate build / smoke
+
+Build and stage without touching the working installation first:
 
 ```sh
 cd app
 ./build.sh
 
-# Only needed when the Mac has more than one valid Apple Development identity:
+# Only needed if the Mac has more than one valid Apple Development identity:
 # export HYPERVIBE_SIGN_ID='Apple Development: …'
 
 HYPERVIBE_SIGN_MODE=developer ./create_app_bundle.sh
 codesign --verify --deep --strict --verbose=2 ".build/HyperVibe-Dev.app"
 ```
 
-Do **not** launch the staged development bundle while the installed stable App is running; both can
-compete for Siri Remote HID/media handling.
+A safe isolated self-test is available before any real-device cutover:
 
-For real-device smoke testing:
+```sh
+.build/HyperVibe-Dev.app/Contents/MacOS/HyperVibe --test-voice-input
+```
+
+That path is intentionally handled before App delegate startup and does not seize the Siri Remote, install input hooks or trigger TCC checks.
+
+Do **not** launch the normal staged development UI while the installed stable HyperVibe is running; both can compete for Siri Remote HID/media handling.
+
+For a real-device smoke:
 
 1. preserve a rollback copy of `/Applications/HyperVibe.app`;
 2. stop the stable process;
 3. verify the candidate's nested signature;
 4. install the candidate at the canonical path;
-5. grant/re-check TCC permissions for the new identity;
+5. grant/re-check TCC permissions if the code identity changed;
 6. run exactly one HyperVibe UI process;
-7. restore the stable bundle immediately if the smoke test fails.
+7. verify remote buttons/touch, F10 press/release, disconnect/quit cleanup, Voice and Corpus behavior;
+8. restore the stable bundle immediately if the smoke fails.
 
-See `AGENTS.md` for the non-negotiable form of these rules.
+See `AGENTS.md` for the non-negotiable deployment rules.
 
-## Current runtime refactor in PR #1
+## Behavior invariants carried forward
 
-The goal is “disabled feature + relaunch = subsystem is not constructed/prewarmed”, without deleting
-feature source yet.
+Architecture work must not intentionally change:
 
-Launch/on-demand gating currently covers:
+- Siri Remote HID event timing;
+- immediate external F10 PTT down/up behavior;
+- voice press/release Corpus boundaries;
+- Keychain identity or migration policy;
+- microphone routing/data path;
+- MultitouchSupport signing topology.
 
-- Native Voice coordinator / credential preload / network prewarm;
-- Voice Pipeline HUD;
-- Status Widget;
-- Long-press HUD;
-- Demo Remote controller/observers;
-- Sparkle updater controller when automatic checks are disabled;
-- App Wheel controller/model until first summon.
+### External Side/F10 route
 
-`SettingsWindowController` was inspected and its expensive SwiftUI window/hosting controller was
-already lazy.
-
-`BuiltinMicFeeder` intentionally remains available because it also serves the external/virtual-mic
-path. Do not gate it behind Native Voice without proving the external Siri Remote microphone path
-does not depend on it.
-
-## External Side/F10 behavior
-
-The current real workflow is:
+Current behavior remains:
 
 ```text
 physical Side press
@@ -156,122 +150,56 @@ physical Side release
   → Corpus end
 ```
 
-The old 0.2 s promotion delay was removed from `holdKeystroke`. A true held shortcut mirrors the
-physical button directly. For the current `button.siri = holdKeystroke(f10)` product route, the Side
-button is deliberately **dedicated to F10 PTT**: that base binding owns the whole press/release
-lifecycle, so Native Voice and `.double` / `.triple` / `.hold` variants on the same physical Side
-press are intentionally not reachable. `pushToTalk` remains a separate delayed/tap-compatible route.
+The base `button.siri = holdKeystroke(f10)` route owns the whole physical press/release lifecycle. Teardown paths must always release a live held key so F10 cannot remain latched after swallowed release, modal ownership, disconnect or App termination.
 
-Every teardown path must release a live held key: swallowed release, modal ownership, remote
-disconnect and normal App termination must not leave F10 latched down.
+## Touch and synchronization hardening retained from 2026-10-08
 
-## Voice Corpus
+The pre-R1 hardening remains part of the required baseline:
 
-Canonical schema and invariants: `docs/voice-corpus.md`.
+- touch starvation recovery is single-shot per quiet period instead of repeatedly stop/start cycling the touch device;
+- `VoiceTextDeliveryWorker.currentFrontmostPID()` avoids main-to-main sync deadlock by reading AppKit directly when already on the main thread;
+- `VoiceCorpusRecorder.flushForTermination()` drains through queue-aware `drainIOQueueAndRun()` rather than blindly synchronising onto its own queue.
 
-The feature is opt-in through `settings.corpusCaptureEnabled` / Settings → Voice.
+Do not undo these while simplifying ownership.
 
-Default root:
+## Voice Corpus contract
 
-```text
-~/Library/Application Support/HyperVibe/Corpus/
-└── YYYY-MM-DD/
-    └── <time-id>/
-        ├── audio.wav
-        ├── capture.json
-        ├── observation.json
-        ├── ime.clipboard.json       # optional
-        └── ime.accessibility.json   # optional
-```
+Canonical schema and invariants live in `docs/voice-corpus.md`.
 
-Raw policy:
+The feature remains opt-in through `settings.corpusCaptureEnabled` / Settings → Voice. Raw capture follows the physical press/release boundary. Missing text is an observation state, not failure; missing labels are preferred to wrong audio/text pairing. Focus/Secure Input interruption and next-attempt attribution guards must remain conservative. Nightly ASR/VAD/alignment belongs to a later Analysis layer and must not rewrite Raw files.
 
-- physical press/release defines the sample boundary;
-- no VAD, text-presence, short-press or minimum-speech filter deletes Raw data;
-- missing text is normal observation state, not failure;
-- Raw does not infer network failure, IME failure or absence of speech;
-- starting attempt N+1 closes N's pending text-attribution watcher before N+1 can own new text,
-  even if Corpus has just been disabled or N+1 cannot create its sample directory;
-- a focus change or Secure Input appearing during the post-release observation window ends text
-  attribution immediately (`interrupted_by_focus_change` / `interrupted_by_secure_input`);
-- missing labels are preferred to wrong audio/text pairing;
-- turning Corpus OFF during an already-active attempt does **not** truncate it: that physical
-  press/release sample finishes normally, while the next attempt is not recorded;
- - if the Siri Remote audio producer is cold at physical press, Corpus keeps the built-in-mic probe
-  when it actually contains frames, preserving the utterance beginning. If that probe is empty, it
-  keeps sampling for fresh remote frames rather than locking the sample to silence;
-  `audio_source` records the selected source;
-- `capture.json` records generated vs stored frame counts and `audio_storage_status`; the separate
-  `audio_capture_status` is `captured` or `no_frames`, so a valid empty WAV is not mistaken for audio.
-- Corpus audio is streamed directly to its WAV spool instead of retaining the whole utterance PCM or
-  an unconsumed AsyncStream. Long thinking holds therefore grow disk usage rather than linearly
-  growing App memory.
+## Current build and signing identity
 
-Nightly ASR/VAD/alignment belongs to a later **Analysis** layer and must not overwrite Raw files.
+Development packaging uses:
 
-## Known deferred issues
+- default App bundle id: `org.tevriq.siriremoteforge`;
+- Credential Broker id: `<app-bundle-id>.CredentialBroker`;
+- the developer's own `Apple Development:` identity;
+- optional exact identity selector: `HYPERVIBE_SIGN_ID`;
+- optional bundle-id override: `HYPERVIBE_BUNDLE_ID`;
+- no silent ad-hoc fallback for developer packaging.
 
-These are known but intentionally outside the current first compile/smoke pass:
+The main App and Credential Broker trust relationship is Bundle ID + Apple Team ID rather than one exact leaf certificate. The outer App intentionally remains without hardened runtime because the private MultitouchSupport callback path is incompatible with it; nested Sparkle helpers retain hardened runtime.
 
-1. The App is still a monolithic swiftc target. Runtime laziness is phase 1; a later target/module
-   split is the place to stop linking unused frameworks entirely.
-2. The inherited Sparkle release infrastructure is **not trusted for this fork**. Local `-local.`
-   builds embed no feed/key and disable both scheduled and manual checks. Any future non-local
-   release must explicitly supply this fork's own `HYPERVIBE_UPDATE_FEED_URL` and
-   `HYPERVIBE_UPDATE_PUBLIC_KEY`; packaging fails otherwise.
-4. Voice credentials now use the fork-owned Keychain service
-   `org.tevriq.siriremoteforge.credentials.v1`. The broker may read the historical
-   `com.hypervibe.credentials.v6` item as a one-way migration source and copy it into the new
-   namespace, but migration does not delete/rewrite the legacy item, preserving stable-App rollback.
-5. The existing `au.holodata...` microphone system-component identifiers are intentionally
-   unchanged in PR #1. Their separate ownership/upgrade migration is tracked in Issue #3.
+A first install under a new certificate/bundle identity can legitimately require fresh Accessibility, Input Monitoring and Microphone grants plus a Launch at Login re-check.
 
-## Validation gate
+## Known deferred items
 
-PR #1 stays Draft until the real Mac validates the current head. Tracking issue: **#2**.
+- The App is still one direct `swiftc` App target even though Core and RemoteInput state now have real module boundaries. Further target decomposition is separate work.
+- The inherited Sparkle release infrastructure is not trusted for this fork. Non-local releases must explicitly supply this fork's update feed/key.
+- Voice credentials use `org.tevriq.siriremoteforge.credentials.v1`; the historical namespace may be read only as a one-way migration source so stable-App rollback remains possible.
+- Existing `au.holodata...` microphone component identifiers are intentionally unchanged; their ownership/upgrade migration remains separate work.
+- The remaining strict-concurrency baseline is debt, not permission to add new warnings. CI must continue to reject growth; future work should shrink it incrementally.
 
-Minimum source/build checks:
+## Active technical sources
 
-```sh
-git diff --check main...chatgpt/lazy-disabled-subsystems-20260922
-swift build --package-path SiriRemoteCore
-swift test --package-path SiriRemoteCore
-cd app && ./build.sh
-```
-
-Then package (without installing) using Apple Development signing and strict nested verification.
-
-The first real-device smoke must verify at least:
-
-- immediate F10 down/up with Corpus OFF;
-- no stuck F10 on disconnect/quit;
-- disabled heavy subsystems are absent at launch;
-- Corpus normal sentence;
-- speech with no observed IME text;
-- silence/thinking;
-- very short press;
-- two close attempts without cross-attribution;
-- quit/relaunch immediately after a release;
-- audio source is normally the Siri Remote rather than unintended built-in fallback;
-- memory before/after with the same feature settings.
-
-Do not merge based on static review alone.
-
-## Active vs deprecated material
-
-Active technical sources:
-
-- `AGENTS.md` — operating/build/deployment rules;
-- this file — current state and next gate;
+- `AGENTS.md` — build/deployment operating rules;
+- this file — current repository state and next local gate;
+- `docs/architecture-r1-implementation.md` — Architecture R1 contract and actual acceptance;
 - `docs/voice-corpus.md` — Raw Corpus contract;
 - `mic/` — working microphone stack;
-- `docs/mic-reverse-engineering.md` — still-useful microphone evidence/history.
+- `docs/mic-reverse-engineering.md` — useful microphone evidence/history.
 
-Archived material:
-
-- `deprecated/HANDOFF-legacy-upstream-2026-09-23.md` — previous 275 KB living handoff/history;
-- `deprecated/driverkit/` — superseded DriverKit proof of concept.
-
-Do not treat files under `deprecated/` as current instructions.
+Material under `deprecated/` is historical only.
 
 By ChatGPT

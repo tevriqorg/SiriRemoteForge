@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  VoiceTranscriptionClient.swift
 //  HyperVibe

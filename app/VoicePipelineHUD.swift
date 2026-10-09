@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  VoicePipelineHUD.swift
 //  HyperVibe

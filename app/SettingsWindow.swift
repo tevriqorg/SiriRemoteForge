@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  SettingsWindow.swift
 //  HyperVibe (settings UI)

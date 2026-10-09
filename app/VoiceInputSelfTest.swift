@@ -1,3 +1,5 @@
+import SiriRemoteCore
+import RemoteInputCore
 //
 //  VoiceInputSelfTest.swift
 //  HyperVibe

@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  GATTDiagnostics.swift
 //  HyperVibe

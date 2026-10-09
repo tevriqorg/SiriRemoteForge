@@ -19,6 +19,8 @@ SWIFT_FILES=(
     "main.swift"
     "Localization.swift"
     "SiriRemoteApp.swift"
+    "AppRuntime.swift"
+    "DeveloperCommandRouter.swift"
     "MenuBarManager.swift"
     "UpdateManager.swift"
     "RemoteDetector.swift"
@@ -83,18 +85,6 @@ SWIFT_FILES=(
     "ConfigStore.swift"
     "ConfigFileWatcher.swift"
     # --- SiriRemoteCore (pure engine, compiled into the binary) ---
-    "../SiriRemoteCore/Sources/SiriRemoteCore/JSONC.swift"
-    "../SiriRemoteCore/Sources/SiriRemoteCore/Action.swift"
-    "../SiriRemoteCore/Sources/SiriRemoteCore/Config.swift"
-    "../SiriRemoteCore/Sources/SiriRemoteCore/ConfigLoader.swift"
-    "../SiriRemoteCore/Sources/SiriRemoteCore/ConfigWriter.swift"
-    "../SiriRemoteCore/Sources/SiriRemoteCore/Events.swift"
-    "../SiriRemoteCore/Sources/SiriRemoteCore/CircularScroll.swift"
-    "../SiriRemoteCore/Sources/SiriRemoteCore/HoldTiming.swift"
-    "../SiriRemoteCore/Sources/SiriRemoteCore/ShortcutCodec.swift"
-    "../SiriRemoteCore/Sources/SiriRemoteCore/MappingEngine.swift"
-    "../SiriRemoteCore/Sources/SiriRemoteCore/Controller.swift"
-    "../SiriRemoteCore/Sources/SiriRemoteCore/Placeholder.swift"
 )
 
 # Find SDK path
@@ -126,6 +116,39 @@ else
 fi
 
 echo "Building for: $TARGET"
+
+# Build SiriRemoteCore as the real SwiftPM module used by production. Unit tests and the App now
+# compile the same target instead of recompiling Core source files into the App module. A static
+# library keeps the existing single-bundle runtime topology: there is no new dylib to embed/sign.
+CORE_PACKAGE="$PWD/../SiriRemoteCore"
+CORE_BUILD_ARGS=(--package-path "$CORE_PACKAGE" -c release --product SiriRemoteCore)
+if [ "${HYPERVIBE_STRICT_CONCURRENCY:-0}" = "1" ]; then
+    CORE_BUILD_ARGS+=(
+        -Xswiftc -warn-concurrency
+        -Xswiftc -strict-concurrency=complete
+        -Xswiftc -warnings-as-errors
+    )
+fi
+swift build "${CORE_BUILD_ARGS[@]}"
+CORE_BIN_PATH="$(swift build --package-path "$CORE_PACKAGE" -c release --show-bin-path)"
+CORE_MODULE_PATH="$CORE_BIN_PATH/Modules"
+CORE_LIBRARY="$CORE_BIN_PATH/libSiriRemoteCore.a"
+test -e "$CORE_MODULE_PATH/SiriRemoteCore.swiftmodule" || { echo "Missing SiriRemoteCore module" >&2; exit 1; }
+test -f "$CORE_LIBRARY" || { echo "Missing SiriRemoteCore static library" >&2; exit 1; }
+
+# RemoteInputCore owns pure physical-input gesture state. HID callbacks/timers remain in App.
+REMOTE_INPUT_BUILD_ARGS=(--package-path "$CORE_PACKAGE" -c release --product RemoteInputCore)
+if [ "${HYPERVIBE_STRICT_CONCURRENCY:-0}" = "1" ]; then
+    REMOTE_INPUT_BUILD_ARGS+=(
+        -Xswiftc -warn-concurrency
+        -Xswiftc -strict-concurrency=complete
+        -Xswiftc -warnings-as-errors
+    )
+fi
+swift build "${REMOTE_INPUT_BUILD_ARGS[@]}"
+REMOTE_INPUT_LIBRARY="$CORE_BIN_PATH/libRemoteInputCore.a"
+test -e "$CORE_MODULE_PATH/RemoteInputCore.swiftmodule" || { echo "Missing RemoteInputCore module" >&2; exit 1; }
+test -f "$REMOTE_INPUT_LIBRARY" || { echo "Missing RemoteInputCore static library" >&2; exit 1; }
 
 # Compile the narrow login-keychain compatibility bridge once for both executables. Its source
 # scopes the deprecated declarations precisely; -Werror remains enabled for every other warning.
@@ -173,8 +196,11 @@ swiftc \
     -sdk "$SDK_PATH" \
     -target "$TARGET" \
     -o HyperVibe \
+    -I "$CORE_MODULE_PATH" \
     "${SWIFT_FILES[@]}" \
     BuiltinMicRingWriter.o \
+    "$CORE_LIBRARY" \
+    "$REMOTE_INPUT_LIBRARY" \
     -import-objc-header SiriRemote-Bridging-Header.h \
     -F "$SPARKLE_ROOT" \
     -framework Sparkle \

@@ -1,0 +1,165 @@
+name: Architecture R1 Phase 2
+
+on:
+  push:
+    branches:
+      - 'chatgpt/architecture-r1-20261008'
+    paths:
+      - '.github/workflows/architecture-r1-phase2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  remote-input-core:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt/architecture-r1-20261008
+          fetch-depth: 0
+
+      - name: Wire App to RemoteInputCore
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('app/RemoteInputHandler.swift')
+          s = p.read_text()
+          if 'import RemoteInputCore' not in s:
+              s = s.replace('import SiriRemoteCore\n', 'import SiriRemoteCore\nimport RemoteInputCore\n', 1)
+
+          hold_pattern = re.compile(
+              r'    /// One armed hold stage:.*?    private var armedHolds: \[String: ArmedHold\] = \[:\]\n',
+              re.S,
+          )
+          s, count = hold_pattern.subn(
+              '    private typealias ArmedStage = RemoteHoldStage\n'
+              '    private typealias ArmedHold = RemoteHoldGesture\n'
+              '    private var armedHolds = RemoteHoldState<String>()\n',
+              s,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('hold state block not found')
+
+          layer_pattern = re.compile(
+              r'    private enum LayerGesture \{.*?'
+              r'    private var stickyButton: String\?.*?\n'
+              r'                                         // from inside the layer.*?\n',
+              re.S,
+          )
+          s, count = layer_pattern.subn(
+              '    private var layerState = RemoteLayerState<String>()\n',
+              s,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('layer state block not found')
+
+          s = s.replace('private var tapRun: [String: Int] = [:]',
+                        'private var tapRun = RemoteTapRunState<String>()')
+          s = s.replace('private var heldKeyEngaged: Set<String> = []',
+                        'private var heldKeyEngaged = RemoteRepeatEngagementState<String>()')
+
+          for old, new in (
+              ('LayerGesture', 'RemoteLayerGesture'),
+              ('layerButton', 'layerState.button'),
+              ('layerGesture', 'layerState.gesture'),
+              ('layerUsed', 'layerState.used'),
+              ('stickyLayer', 'layerState.stickyLayer'),
+              ('stickyButton', 'layerState.stickyButton'),
+          ):
+              s = s.replace(old, new)
+
+          s = s.replace(
+              '                layerState.button = buttonName\n'
+              '                layerState.gesture = gesture\n'
+              '                layerState.used = false\n',
+              '                layerState.engage(button: buttonName, gesture: gesture)\n',
+          )
+          s = s.replace(
+              '                layerState.button = nil\n'
+              '                layerState.gesture = nil\n'
+              '                layerState.used = false\n',
+              '                layerState.resetMomentary()\n',
+          )
+          s = s.replace('if layerState.button != nil { layerState.used = true }',
+                        'layerState.markUsed()')
+          s = s.replace(
+              '        let n = (tapRun[buttonName] ?? 0) + 1\n'
+              '        tapRun[buttonName] = n\n',
+              '        let n = tapRun.advance(buttonName)\n',
+          )
+          s = s.replace(
+              '            let selection = releaseHoldSelection ?? HoldTiming.selection(\n'
+              '                elapsed: CACurrentMediaTime() - hold.startedAt,\n'
+              '                stageDelays: hold.stages.map(\\.delay),\n'
+              '                cancelAt: hold.cancelAt)\n',
+              '            let selection = releaseHoldSelection ?? hold.selection(at: CACurrentMediaTime())\n',
+          )
+          s = s.replace('    ) -> HoldSelection? {', '    ) -> RemoteHoldSelection? {')
+          s = s.replace(
+              '        return HoldTiming.selection(\n'
+              '            elapsed: now - hold.startedAt,\n'
+              '            stageDelays: hold.stages.map(\\.delay),\n'
+              '            cancelAt: hold.cancelAt)\n',
+              '        return hold.selection(at: now)\n',
+          )
+          if 'private struct ArmedStage' in s or 'private enum LayerGesture' in s:
+              raise SystemExit('old pure state still present')
+          p.write_text(s)
+
+          p = Path('app/VoiceInputSelfTest.swift')
+          s = p.read_text()
+          if 'import RemoteInputCore' not in s:
+              s = s.replace('import SiriRemoteCore\n', 'import SiriRemoteCore\nimport RemoteInputCore\n', 1)
+          p.write_text(s)
+
+          old = Path('app/RemoteInputState.swift')
+          if old.exists():
+              old.unlink()
+
+          p = Path('app/build.sh')
+          s = p.read_text().replace('    "RemoteInputState.swift"\n', '')
+          marker = 'test -f "$CORE_LIBRARY" || { echo "Missing SiriRemoteCore static library" >&2; exit 1; }\n\n'
+          insertion = '''test -f "$CORE_LIBRARY" || { echo "Missing SiriRemoteCore static library" >&2; exit 1; }\n\n# RemoteInputCore owns pure physical-input gesture state. HID callbacks/timers remain in App.\nREMOTE_INPUT_BUILD_ARGS=(--package-path "$CORE_PACKAGE" -c release --product RemoteInputCore)\nif [ "${HYPERVIBE_STRICT_CONCURRENCY:-0}" = "1" ]; then\n    REMOTE_INPUT_BUILD_ARGS+=(\n        -Xswiftc -warn-concurrency\n        -Xswiftc -strict-concurrency=complete\n        -Xswiftc -warnings-as-errors\n    )\nfi\nswift build "${REMOTE_INPUT_BUILD_ARGS[@]}"\nREMOTE_INPUT_LIBRARY="$CORE_BIN_PATH/libRemoteInputCore.a"\ntest -e "$CORE_MODULE_PATH/RemoteInputCore.swiftmodule" || { echo "Missing RemoteInputCore module" >&2; exit 1; }\ntest -f "$REMOTE_INPUT_LIBRARY" || { echo "Missing RemoteInputCore static library" >&2; exit 1; }\n\n'''
+          if marker not in s:
+              raise SystemExit('core library marker not found')
+          s = s.replace(marker, insertion, 1)
+          s = s.replace('    "$CORE_LIBRARY" \\\n',
+                        '    "$CORE_LIBRARY" \\\n    "$REMOTE_INPUT_LIBRARY" \\\n', 1)
+          p.write_text(s)
+          PY
+
+      - name: Diff and shell safety
+        run: |
+          git diff --check
+          bash -n app/build.sh scripts/check-swift-concurrency.sh
+
+      - name: Strict Core build
+        run: swift build --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+
+      - name: Strict Core tests
+        run: swift test --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+
+      - name: Strict App concurrency gate
+        run: ./scripts/check-swift-concurrency.sh
+
+      - name: Build and sign staged App
+        run: |
+          cd app
+          ./build.sh
+          HYPERVIBE_SIGN_MODE=adhoc ./create_app_bundle.sh
+          codesign --verify --deep --strict --verbose=2 .build/HyperVibe-Dev.app
+
+      - name: Push validated Phase 2 to staging ref
+        run: |
+          git config user.name "tevriq"
+          git config user.email "318064862+tevriq@users.noreply.github.com"
+          git add SiriRemoteCore app
+          git diff --cached --check
+          git commit -m "refactor: extract RemoteInputCore state machines By ChatGPT"
+          git push origin HEAD:refs/heads/automation/architecture-r1-phase2-staging-20261008

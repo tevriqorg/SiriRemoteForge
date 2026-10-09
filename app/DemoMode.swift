@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  DemoMode.swift
 //  HyperVibe

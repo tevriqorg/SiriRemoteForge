@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  CursorHighlighter.swift
 //  HyperVibe

@@ -1,3 +1,4 @@
+import SiriRemoteCore
 //
 //  MediaKeyInterceptor.swift
 //  Remotastic
