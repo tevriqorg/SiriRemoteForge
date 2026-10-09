@@ -9,8 +9,22 @@ trap 'rm -f "$LOG" "$CURRENT"' EXIT
 
 test -f "$BASELINE" || { echo "Missing concurrency baseline: $BASELINE" >&2; exit 1; }
 
-set -o pipefail
+# Keep the full strict-build transcript for baseline accounting, but if the build itself fails,
+# put a compact compiler/linker summary at the end of the Actions log. GitHub truncates long app
+# builds from the front, which previously hid the actual error behind the known warning baseline.
+set +e
 (cd "$ROOT/app" && HYPERVIBE_STRICT_CONCURRENCY=1 ./build.sh) 2>&1 | tee "$LOG"
+build_status=${PIPESTATUS[0]}
+set -e
+if [ "$build_status" -ne 0 ]; then
+    echo "" >&2
+    echo "Strict concurrency build failed (exit $build_status). Error summary:" >&2
+    grep -nE '(^|[[:space:]])(error:|fatal error:)|undefined symbol|Undefined symbols|ld:|clang: error:|swiftc: error:' "$LOG" \
+        | tail -n 80 >&2 || true
+    echo "--- final build context ---" >&2
+    tail -n 80 "$LOG" >&2 || true
+    exit "$build_status"
+fi
 
 python3 - "$LOG" "$CURRENT" <<'PY'
 from collections import Counter
