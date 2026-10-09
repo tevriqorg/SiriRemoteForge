@@ -183,6 +183,17 @@ The main App and Credential Broker trust relationship is Bundle ID + Apple Team 
 
 A first install under a new certificate/bundle identity can legitimately require fresh Accessibility, Input Monitoring and Microphone grants plus a Launch at Login re-check.
 
+## Local device gate — passed, 2026-10-09
+
+Base: `main` @ `9aefbd1` plus #12 (`2a88d21`, local SwiftPM swiftmodule-layout fix).
+
+- Core build/tests, App build, developer signing, strict nested codesign: pass.
+- Isolated `--test-voice-input`: PASS (123 checks).
+- Stable app identity was already `org.tevriq.siriremoteforge` / Team `JAMBVS7987` / same leaf cert, so TCC and Launch-at-Login carried over with no new grants.
+- Candidate installed at `/Applications/HyperVibe.app`; exactly one UI process; HID event delivery and Voice Isolation DSP registration observed in logs; quit is clean (no crash, no latch).
+- Rollback copy: `work/HyperVibe-stable-rollback-20261009.app` (pre-#12 stable bundle).
+- Physical remote button/touch/F10 sweep requires the human operator and remains the only operator-owned acceptance item.
+
 ## Known deferred items
 
 - The App is still one direct `swiftc` App target even though Core and RemoteInput state now have real module boundaries. Further target decomposition is separate work.
