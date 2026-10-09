@@ -1,5 +1,5 @@
 name: Architecture R1 Phase 3-4
-# Triggered for final Architecture R1 Phase 3/4 validation.
+# Final Architecture R1 Phase 3/4 validation with individually visible quality gates.
 
 on:
   push:
@@ -14,6 +14,7 @@ permissions:
 jobs:
   composition-and-ownership:
     runs-on: macos-15
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,13 +75,22 @@ jobs:
           build.write_text(b)
           PY
 
-      - name: Validate composition and ownership
+      - name: Diff and shell safety
         run: |
           git diff --check
           bash -n app/build.sh scripts/check-swift-concurrency.sh
-          swift build --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
-          swift test --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
-          ./scripts/check-swift-concurrency.sh
+
+      - name: Strict Core build
+        run: swift build --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+
+      - name: Strict Core tests
+        run: swift test --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+
+      - name: Strict App concurrency gate
+        run: ./scripts/check-swift-concurrency.sh
+
+      - name: Build and sign staged App
+        run: |
           cd app
           ./build.sh
           HYPERVIBE_SIGN_MODE=adhoc ./create_app_bundle.sh
