@@ -56,6 +56,18 @@ jobs:
               s = s.replace(f'self?.{name}', f'self?.runtime.{name}')
               s = s.replace(f'self.{name}', f'self.runtime.{name}')
 
+          # refreshRawTouchObserver intentionally shadows the optional AppRuntime property with a
+          # non-optional local. Preserve that local ownership while migrating the backing property.
+          s = s.replace(
+              '        guard let runtime.touchHandler = runtime.touchHandler else { return }\n',
+              '        guard let touchHandler = runtime.touchHandler else { return }\n',
+              1,
+          )
+          s = s.replace('            runtime.touchHandler.onRawTouch = nil\n',
+                        '            touchHandler.onRawTouch = nil\n', 1)
+          s = s.replace('        runtime.touchHandler.onRawTouch = { [weak self] snapshots in\n',
+                        '        touchHandler.onRawTouch = { [weak self] snapshots in\n', 1)
+
           s = s.replace('CommandLine.arguments.contains(', 'developerCommands.has(')
           s = s.replace('CommandLine.arguments', 'developerCommands.arguments')
           s = s.replace('DeveloperCommandRouter(arguments: developerCommands.arguments)', 'DeveloperCommandRouter(arguments: CommandLine.arguments)', 1)
