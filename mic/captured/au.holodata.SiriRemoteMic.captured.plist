@@ -8,8 +8,10 @@
     <array>
         <string>/Library/Application Support/SiriRemoteMic/srm_captured</string>
     </array>
-    <!-- Start at boot and stay resident: it must be listening for the demand notification the
-         instant any app opens the virtual mic. KeepAlive restarts it if it ever crashes. -->
+    <!-- Start at boot and stay resident. The supervisor now also keeps PacketLogger + srm_router
+         alive as a low-activity streaming pair so a Siri press never pays PacketLogger cold-start
+         latency. KeepAlive restarts the supervisor if it ever crashes; the supervisor restarts its
+         capture children as a matched pair. -->
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
