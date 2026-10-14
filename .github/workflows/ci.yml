@@ -29,6 +29,9 @@ jobs:
           bash -n \
             app/create_app_bundle.sh \
             app/build.sh \
+            mic/router/build.sh \
+            mic/captured/build.sh \
+            mic/captured/install.sh \
             scripts/check-swift-concurrency.sh \
             dist/build-release.sh \
             dist/package.sh \
@@ -47,6 +50,18 @@ jobs:
         run: swift build --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
       - name: Test with complete concurrency checking
         run: swift test --package-path SiriRemoteCore -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+
+  voice-capture:
+    name: Persistent voice capture supervisor
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      # srm_router itself is unchanged by this PR and its standalone build requires Homebrew's
+      # static libopus. The new supervisor is pure libSystem, so compile it directly here to prove
+      # the macOS SDK / libnotify / libdispatch / posix_spawn code with -Werror and no network setup.
+      - name: Build persistent capture supervisor
+        working-directory: mic/captured
+        run: ./build.sh
 
   app:
     name: App (compiles, links, and stages)
