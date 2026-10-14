@@ -752,9 +752,12 @@ final class VoiceDictationCoordinator {
         guard active?.id == session.id else { return }
         session.metrics.audioSource = audio.source.rawValue
         session.metrics.audioDurationMilliseconds = audio.duration * 1_000
-        rmDebug(String(format: "🎙 voice capture source=%@ duration=%.3fs frames=%d rms=%.6f",
-                       audio.source.rawValue, audio.duration, audio.frameCount,
-                       sqrt(max(0, audio.meanSquare))))
+        let firstFrameText = audio.remoteFirstFrameLatencyMilliseconds
+            .map { String(format: "%.1fms", $0) } ?? "n/a"
+        rmDebug(String(format: "🎙 voice capture source=%@ outcome=%@ duration=%.3fs frames=%d "
+                             + "firstFrame=%@ rms=%.6f",
+                       audio.source.rawValue, audio.outcome.rawValue, audio.duration,
+                       audio.frameCount, firstFrameText, sqrt(max(0, audio.meanSquare))))
         guard Self.minimumDurationMet(audio.duration,
                                       minimum: session.settings.minimumRecordingSeconds) else {
             await discardShortCapture(session)

@@ -283,7 +283,10 @@ final class VoiceCorpusRecorder {
                     audioFile: "audio.wav",
                     audioSource: audio.source.rawValue,
                     audioStorageStatus: storage.status,
-                    audioCaptureStatus: audio.frameCount > 0 ? "captured" : "no_frames",
+                    audioCaptureStatus: audio.outcome == .remoteCaptured
+                        || audio.outcome == .builtInCaptured ? "captured" : "no_frames",
+                    audioCaptureOutcome: audio.outcome.rawValue,
+                    remoteFirstFrameLatencyMilliseconds: audio.remoteFirstFrameLatencyMilliseconds,
                     audioStoredFrameCount: storage.storedFrameCount,
                     sampleRate: audio.sampleRate,
                     frameCount: audio.frameCount,
@@ -296,7 +299,8 @@ final class VoiceCorpusRecorder {
                 try encoder.encode(record).write(to: recordURL, options: .atomic)
                 try secureFile(recordURL)
                 rmDebug("🗂 corpus: saved id=\(snapshot.id.uuidString) "
-                        + "source=\(audio.source.rawValue) duration=\(String(format: "%.2f", audio.duration))s "
+                        + "source=\(audio.source.rawValue) outcome=\(audio.outcome.rawValue) "
+                        + "duration=\(String(format: "%.2f", audio.duration))s "
                         + "storage=\(storage.status) frames=\(storage.storedFrameCount)/\(audio.frameCount)")
             } catch {
                 reportStorageFailure(
@@ -335,6 +339,8 @@ final class VoiceCorpusRecorder {
         let audioSource: String
         let audioStorageStatus: String
         let audioCaptureStatus: String
+        let audioCaptureOutcome: String
+        let remoteFirstFrameLatencyMilliseconds: Double?
         let audioStoredFrameCount: Int
         let sampleRate: Int
         let frameCount: Int
@@ -354,6 +360,8 @@ final class VoiceCorpusRecorder {
             case audioSource = "audio_source"
             case audioStorageStatus = "audio_storage_status"
             case audioCaptureStatus = "audio_capture_status"
+            case audioCaptureOutcome = "audio_capture_outcome"
+            case remoteFirstFrameLatencyMilliseconds = "remote_first_frame_latency_ms"
             case audioStoredFrameCount = "audio_stored_frame_count"
             case sampleRate = "sample_rate"
             case frameCount = "frame_count"

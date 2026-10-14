@@ -590,6 +590,18 @@ final class BuiltinMicFeeder {
         deviceListeners.removeAll()
     }
 
+
+    /// Whether this Mac exposes a usable built-in microphone. This is the single fact the capture
+    /// state machine needs to decide if a built-in fallback can ever produce audio; the external /
+    /// remote paths are unaffected. Cached once and recomputed only while unset, because the
+    /// decision is stable for a process lifetime and the caller may query it on the press edge.
+    private static var cachedBuiltInMicAvailable: Bool?
+    static var builtInMicAvailable: Bool {
+        if let cachedBuiltInMicAvailable { return cachedBuiltInMicAvailable }
+        let available = resolveBuiltInMic() != nil
+        cachedBuiltInMicAvailable = available
+        return available
+    }
     // MARK: - Built-in device resolution (never the default input)
 
     /// Finds the built-in microphone explicitly: prefer the well-known UID, fall back to

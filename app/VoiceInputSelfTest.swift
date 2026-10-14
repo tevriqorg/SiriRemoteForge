@@ -837,14 +837,19 @@ enum VoiceInputSelfTest {
                && VoiceRemoteProbePolicy.firstCursor(baseline: 90_000,
                                                      producerWasActive: true) == 75_600
                && VoiceRemoteProbePolicy.maximumWaitNanoseconds == 650_000_000
+               && VoiceRemoteProbePolicy.remoteStartupTimeoutNanoseconds == 3_000_000_000
                && VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
-                    remoteWasActiveAtStart: false, builtInFrameCount: 1
+                    remoteWasActiveAtStart: false, builtInAvailable: true, builtInFrameCount: 1
+                  )
+               // No built-in microphone can never win, even with a non-empty probe count.
+               && !VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
+                    remoteWasActiveAtStart: false, builtInAvailable: false, builtInFrameCount: 5
                   )
                && !VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
-                    remoteWasActiveAtStart: false, builtInFrameCount: 0
+                    remoteWasActiveAtStart: false, builtInAvailable: true, builtInFrameCount: 0
                   )
                && !VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
-                    remoteWasActiveAtStart: true, builtInFrameCount: 1
+                    remoteWasActiveAtStart: true, builtInAvailable: true, builtInFrameCount: 1
                   )
                && VoiceRemoteProbePolicy.rebasedBaselineAfterProducerRestart(
                     baseline: 90_000, current: 1_200
@@ -853,6 +858,56 @@ enum VoiceInputSelfTest {
                     baseline: 90_000, current: 91_200
                   ) == 90_000,
                "cold remote preserves real built-in audio and survives a router counter restart")
+
+        // The core regression: on a Mac with no built-in microphone, a remote that has not produced
+        // yet must never lock the attempt to the built-in ring. It stays pending, then times out
+        // explicitly instead of silently recording an empty "success".
+        expect(VoiceRemoteProbePolicy.resolveProbe(
+                    builtInAvailable: false, builtInFrameCount: 0,
+                    remoteWasActiveAtStart: false, remoteWasLive: false, remoteAdvancedFrames: 0,
+                    elapsedNanoseconds: 0, preserveBeginningWhenRemoteCold: true
+               ) == .keepRemotePending
+               && VoiceRemoteProbePolicy.resolveProbe(
+                    builtInAvailable: false, builtInFrameCount: 0,
+                    remoteWasActiveAtStart: false, remoteWasLive: false, remoteAdvancedFrames: 0,
+                    elapsedNanoseconds: VoiceRemoteProbePolicy.maximumWaitNanoseconds + 1,
+                    preserveBeginningWhenRemoteCold: true
+               ) == .keepRemotePending
+               && VoiceRemoteProbePolicy.resolveProbe(
+                    builtInAvailable: false, builtInFrameCount: 0,
+                    remoteWasActiveAtStart: false, remoteWasLive: false, remoteAdvancedFrames: 0,
+                    elapsedNanoseconds: VoiceRemoteProbePolicy.remoteStartupTimeoutNanoseconds,
+                    preserveBeginningWhenRemoteCold: true
+               ) == .remoteStartTimeout,
+               "no built-in mic: pending remote never locks to built-in, times out explicitly")
+
+        // A live remote delivering real frames wins immediately.
+        expect(VoiceRemoteProbePolicy.resolveProbe(
+                    builtInAvailable: false, builtInFrameCount: 0,
+                    remoteWasActiveAtStart: false, remoteWasLive: true, remoteAdvancedFrames: 960,
+                    elapsedNanoseconds: 0, preserveBeginningWhenRemoteCold: true
+               ) == .remote
+               // A real built-in mic still allows the historical cold-remote beginning preference.
+               && VoiceRemoteProbePolicy.resolveProbe(
+                    builtInAvailable: true, builtInFrameCount: 5,
+                    remoteWasActiveAtStart: false, remoteWasLive: false, remoteAdvancedFrames: 0,
+                    elapsedNanoseconds: VoiceRemoteProbePolicy.maximumWaitNanoseconds,
+                    preserveBeginningWhenRemoteCold: true
+               ) == .builtIn
+               // Native Voice (no beginning-preservation) commits to built-in only when it exists.
+               && VoiceRemoteProbePolicy.resolveProbe(
+                    builtInAvailable: true, builtInFrameCount: 0,
+                    remoteWasActiveAtStart: false, remoteWasLive: false, remoteAdvancedFrames: 0,
+                    elapsedNanoseconds: VoiceRemoteProbePolicy.maximumWaitNanoseconds,
+                    preserveBeginningWhenRemoteCold: false
+               ) == .builtIn
+               && VoiceRemoteProbePolicy.resolveProbe(
+                    builtInAvailable: false, builtInFrameCount: 0,
+                    remoteWasActiveAtStart: false, remoteWasLive: false, remoteAdvancedFrames: 0,
+                    elapsedNanoseconds: VoiceRemoteProbePolicy.maximumWaitNanoseconds,
+                    preserveBeginningWhenRemoteCold: false
+               ) == .keepRemotePending,
+               "probe policy keeps a usable built-in fallback but never invents one")
 
         let appendProbe = Data([0, 1, 2, 3, 254, 255])
         let appendEnvelope = VoiceRealtimeTranscriptionSession.audioAppendMessage(appendProbe)

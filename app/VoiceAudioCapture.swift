@@ -16,34 +16,134 @@ struct VoiceCapturedAudio {
         case builtIn
     }
 
+    /// Why the attempt ended with the audio it holds. `remote_start_timeout` and `no_frames` are
+    /// deliberately distinct outcomes: the old code could only report "builtIn / 0 frames" on a
+    /// machine that has no built-in microphone, which read like a successful capture. A remote
+    /// producer that never started in time is now an explicit failure, not a vague 0-frame success.
+    enum Outcome: String {
+        case remoteCaptured = "remote_captured"
+        case builtInCaptured = "builtin_captured"
+        case remoteStartTimeout = "remote_start_timeout"
+        case noFrames = "no_frames"
+    }
+
     let pcm16: Data
     let sampleRate: Int
     let source: Source
     let frameCount: Int
     let meanSquare: Double
+    let outcome: Outcome
+    /// Milliseconds from press to the first remote frame observed in this attempt, or nil when the
+    /// remote producer never produced during it. Diagnostic only.
+    let remoteFirstFrameLatencyMilliseconds: Double?
 
     var duration: TimeInterval {
         sampleRate > 0 ? Double(frameCount) / Double(sampleRate) : 0
     }
+
+    init(pcm16: Data,
+         sampleRate: Int,
+         source: Source,
+         frameCount: Int,
+         meanSquare: Double,
+         outcome: Outcome? = nil,
+         remoteFirstFrameLatencyMilliseconds: Double? = nil) {
+        self.pcm16 = pcm16
+        self.sampleRate = sampleRate
+        self.source = source
+        self.frameCount = frameCount
+        self.meanSquare = meanSquare
+        self.outcome = outcome ?? (frameCount > 0
+            ? (source == .remote ? .remoteCaptured : .builtInCaptured)
+            : .noFrames)
+        self.remoteFirstFrameLatencyMilliseconds = remoteFirstFrameLatencyMilliseconds
+    }
 }
 
-/// Pure cursor policy shared with the native regression suite. A producer that was already live at
-/// press-down may expose current-session pre-roll; one launched for this press must begin exactly at
-/// the captured baseline so persistent shared memory cannot contribute a prior utterance tail.
+/// Pure decision policy for which audio source an attempt runs on, shared with the native
+/// regression suite. The three facts that drive it are deliberately separated:
+///
+/// - `remoteReady`     — the remote producer is live and delivering real frames;
+/// - `remotePending`   — the remote producer has not produced yet (cold start in progress);
+/// - `builtInAvailable`— this Mac actually exposes a usable built-in microphone.
+///
+/// A Mac mini has `builtInAvailable == false`. A pending remote must then never lock the attempt
+/// to the built-in ring: that ring stays empty forever, and the old "builtIn / 0 frames" record
+/// looked like a successful capture. Instead capture stays remote-pending, locks to `remote` on its
+/// first frame, and only gives up at an explicit 3 s `remote_start_timeout`.
 enum VoiceRemoteProbePolicy {
     static let maximumWaitNanoseconds: UInt64 = 650_000_000
+    /// Hard ceiling for a remote producer that never starts. Past this the attempt is reported as
+    /// `remote_start_timeout` rather than an ambiguous empty capture.
+    static let remoteStartupTimeoutNanoseconds: UInt64 = 3_000_000_000
     static let preRollFrames: UInt64 = 14_400 // 300 ms at 48 kHz
+    /// 20 ms of fresh remote audio at 48 kHz is enough to prefer the remote over a probe.
+    static let remoteUsableAdvanceFrames: UInt64 = 960
 
     static func firstCursor(baseline: UInt64, producerWasActive: Bool) -> UInt64 {
         guard producerWasActive, baseline > preRollFrames else { return baseline }
         return baseline - preRollFrames
     }
 
+    /// A real built-in probe is only a valid fallback when the machine has a built-in microphone
+    /// AND that probe actually produced samples. `builtInAvailable == false` can never fall back.
     static func shouldPreferBuiltInForColdRemote(
         remoteWasActiveAtStart: Bool,
+        builtInAvailable: Bool,
         builtInFrameCount: Int
     ) -> Bool {
-        !remoteWasActiveAtStart && builtInFrameCount > 0
+        builtInAvailable && !remoteWasActiveAtStart && builtInFrameCount > 0
+    }
+
+    /// Result of one probe evaluation.
+    enum ProbeResolution: Equatable {
+        case remote
+        case builtIn
+        /// No source decided yet: keep polling the remote ring. Never a built-in lock.
+        case keepRemotePending
+        /// The remote producer did not start within the timeout and no fallback exists.
+        case remoteStartTimeout
+    }
+
+    /// Single source of truth for the probe/first-frame/timeout state machine.
+    static func resolveProbe(
+        builtInAvailable: Bool,
+        builtInFrameCount: Int,
+        remoteWasActiveAtStart: Bool,
+        remoteWasLive: Bool,
+        remoteAdvancedFrames: UInt64,
+        elapsedNanoseconds: UInt64,
+        preserveBeginningWhenRemoteCold: Bool
+    ) -> ProbeResolution {
+        // A live remote delivering real audio always wins, unless a *usable* built-in probe already
+        // captured the utterance beginning and this caller wants it preserved.
+        if remoteWasLive && remoteAdvancedFrames >= remoteUsableAdvanceFrames {
+            if preserveBeginningWhenRemoteCold,
+               shouldPreferBuiltInForColdRemote(
+                   remoteWasActiveAtStart: remoteWasActiveAtStart,
+                   builtInAvailable: builtInAvailable,
+                   builtInFrameCount: builtInFrameCount
+               ) {
+                return .builtIn
+            }
+            return .remote
+        }
+
+        guard elapsedNanoseconds >= maximumWaitNanoseconds else { return .keepRemotePending }
+
+        // Probe window exhausted and the remote has not delivered usable audio yet.
+        if preserveBeginningWhenRemoteCold, builtInAvailable, builtInFrameCount > 0 {
+            return .builtIn
+        }
+        if !preserveBeginningWhenRemoteCold, builtInAvailable {
+            // Native Voice historically commits to the built-in mic after the probe; keep that, but
+            // only when a built-in microphone actually exists.
+            return .builtIn
+        }
+        // No usable fallback: hold remote-pending until the startup timeout makes failure explicit.
+        return elapsedNanoseconds >= remoteStartupTimeoutNanoseconds
+            ? .remoteStartTimeout
+            : .keepRemotePending
     }
 
     /// The historical remote writer reset its monotonic frame counter to zero every time the
@@ -76,10 +176,22 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
     private let streamChunks: Bool
     private let onPCMChunk: (Data) -> Void
     private let preserveBeginningWhenRemoteCold: Bool
+    /// Whether a built-in microphone actually exists on this Mac. When false, the state machine can
+    /// never lock an attempt to the built-in ring; a pending remote stays pending until it starts or
+    /// hits the explicit startup timeout.
+    private let builtInAvailable: Bool
 
     private var timer: DispatchSourceTimer?
     private var startedAtNanoseconds: UInt64 = 0
     private var stopped = false
+    /// Set once when the attempt resolves to a terminal failure with no usable audio.
+    private var pendingOutcome: VoiceCapturedAudio.Outcome?
+    /// Milliseconds from start to the first remote frame observed in this attempt.
+    private var remoteFirstFrameLatencyMilliseconds: Double?
+    /// Producer state captured at press time, for the press-time diagnostic line.
+    private var remoteProducerActiveAtStart = false
+    private var builtinProducerActiveAtStart = false
+    private var loggedRemotePending = false
     private var source: VoiceCapturedAudio.Source?
 
     private var builtinCursor: UInt64 = 0
@@ -109,12 +221,12 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
     private let exclusionLock = NSLock()
     private var excludeUntilNanoseconds: UInt64 = 0
 
-    /// Native dictation raises remote-pipeline demand on the raw press edge. A warm router normally
-    /// produces frames near the 200 ms hold discriminator; buffer the built-in fallback for up to
-    /// 650 ms so a slower launch can still win without losing the sentence beginning. A healthy
-    /// remote wins immediately after 20 ms of fresh audio, so the ceiling adds no healthy-path wait.
-    private let probeNanoseconds = VoiceRemoteProbePolicy.maximumWaitNanoseconds
-
+    /// Native dictation raises remote-pipeline demand on the raw press edge. A healthy remote wins
+    /// as soon as it delivers 20 ms of fresh audio; until then the attempt stays remote-pending.
+    ///
+    /// `builtInAvailable` defaults to the live machine probe. Tests may override it explicitly.
+    /// When this Mac has no built-in microphone, a pending remote is never locked to the built-in
+    /// ring; it stays pending until the first remote frame or the explicit startup timeout.
     init(minimumDuration: TimeInterval,
          maxDuration: TimeInterval,
          onMinimumDurationReached: @escaping () -> Void,
@@ -123,6 +235,7 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
          retainPCM: Bool = true,
          streamChunks: Bool = true,
          preserveBeginningWhenRemoteCold: Bool = false,
+         builtInAvailable: Bool = BuiltinMicFeeder.builtInMicAvailable,
          onPCMChunk: @escaping (Data) -> Void = { _ in }) {
         self.minimumDuration = max(0, minimumDuration)
         self.maxDuration = max(1, maxDuration)
@@ -132,6 +245,7 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
         self.retainPCM = retainPCM
         self.streamChunks = streamChunks
         self.preserveBeginningWhenRemoteCold = preserveBeginningWhenRemoteCold
+        self.builtInAvailable = builtInAvailable
         self.onPCMChunk = onPCMChunk
         var localContinuation: AsyncStream<Data>.Continuation!
         // Native Voice consumes the stream and retains final PCM. Corpus explicitly disables both
@@ -198,13 +312,23 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
 
         var active: UInt32 = 0
         if srm_builtin_audio_state(&builtinCursor, &active) != 0 { builtinCursor = 0 }
+        builtinProducerActiveAtStart = active != 0
         if srm_remote_audio_state(&remoteBaseline, &active) == 0 {
             remoteWasActiveAtStart = active != 0
+            remoteProducerActiveAtStart = active != 0
             remoteCursor = remoteBaseline
         } else {
             remoteBaseline = 0
             remoteCursor = 0
+            remoteProducerActiveAtStart = false
         }
+
+        // Press-time ground truth. This is the line that tells a future reader whether the attempt
+        // began with a warm remote producer or had to wait for one; it is emitted once per attempt.
+        rmDebug("🎙 capture start builtInAvailable=\(builtInAvailable) "
+                + "remoteProducerActive=\(remoteProducerActiveAtStart) "
+                + "builtInProducerActive=\(builtinProducerActiveAtStart) "
+                + "preserveBegin=\(preserveBeginningWhenRemoteCold)")
 
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(20),
@@ -224,8 +348,8 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
             return
         }
 
-        // Once a source wins the 120 ms probe, stop touching the other ring entirely. This halves
-        // ring reads and removes two transient Array allocations from every steady-state tick.
+        // Once a source is chosen, stop touching the other ring entirely. This halves ring reads
+        // and removes two transient Array allocations from every steady-state tick.
         if source == .builtIn {
             let count = readBuiltin()
             append48k(builtinBuffer, count: count)
@@ -240,37 +364,54 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
         let builtinCount = readBuiltin()
         let remoteCount = readRemoteIfLive()
 
-        if source == nil {
-            if builtinCount > 0 {
-                builtinProbe.append(contentsOf: builtinBuffer.prefix(builtinCount))
-            }
-            if remoteCount > 0 {
-                remoteProbe.append(contentsOf: remoteBuffer.prefix(remoteCount))
-            }
-
-            if remoteWasLive && remoteAdvancedFrames >= 960 {
-                // Prefer built-in only when it actually supplied samples to preserve the utterance
-                // beginning. If it stayed empty, keep the late-starting remote instead of locking
-                // the whole capture to silence.
-                if preserveBeginningWhenRemoteCold,
-                   VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
-                    remoteWasActiveAtStart: remoteWasActiveAtStart,
-                    builtInFrameCount: builtinProbe.count
-                   ) {
-                    select(.builtIn)
-                } else {
-                    select(.remote)
-                }
-            } else if now - startedAtNanoseconds >= probeNanoseconds {
-                // Do not lock an empty built-in ring. Keep sampling until a source has real frames,
-                // or until stopOnQueue chooses the best available probe at release.
-                if !preserveBeginningWhenRemoteCold || !builtinProbe.isEmpty {
-                    select(.builtIn)
-                }
-            }
-            return
+        if builtinCount > 0 {
+            builtinProbe.append(contentsOf: builtinBuffer.prefix(builtinCount))
+        }
+        if remoteCount > 0 {
+            remoteProbe.append(contentsOf: remoteBuffer.prefix(remoteCount))
+        }
+        // The first remote frame of this attempt is the latency figure operators actually need.
+        if remoteFirstFrameLatencyMilliseconds == nil, remoteCount > 0 {
+            remoteFirstFrameLatencyMilliseconds =
+                Double(now - startedAtNanoseconds) / 1_000_000
+            rmDebug(String(format: "🎙 remote first frame latency=%.1fms",
+                           remoteFirstFrameLatencyMilliseconds ?? 0))
         }
 
+        let elapsed = now - startedAtNanoseconds
+        let resolution = VoiceRemoteProbePolicy.resolveProbe(
+            builtInAvailable: builtInAvailable,
+            builtInFrameCount: builtinProbe.count,
+            remoteWasActiveAtStart: remoteWasActiveAtStart,
+            remoteWasLive: remoteWasLive,
+            remoteAdvancedFrames: remoteAdvancedFrames,
+            elapsedNanoseconds: elapsed,
+            preserveBeginningWhenRemoteCold: preserveBeginningWhenRemoteCold
+        )
+        switch resolution {
+        case .remote:
+            select(.remote)
+        case .builtIn:
+            select(.builtIn)
+        case .keepRemotePending:
+            // Log the wait once so a slow producer is visible, not silent.
+            if !loggedRemotePending, elapsed >= VoiceRemoteProbePolicy.maximumWaitNanoseconds {
+                loggedRemotePending = true
+                rmDebug("🎙 remote pending — no built-in fallback available; waiting for producer "
+                        + "(timeout=\(VoiceRemoteProbePolicy.remoteStartupTimeoutNanoseconds / 1_000_000)ms)")
+            }
+        case .remoteStartTimeout:
+            // Producer never started in time. Record the failure explicitly but keep polling: a
+            // very slow producer that arrives after the timeout should still be captured rather
+            // than discarded, matching the corpus raw-attempt contract.
+            if pendingOutcome == nil {
+                pendingOutcome = .remoteStartTimeout
+                rmDebug("🎙 remote_start_timeout after "
+                        + "\(VoiceRemoteProbePolicy.remoteStartupTimeoutNanoseconds / 1_000_000)ms "
+                        + "builtInAvailable=\(builtInAvailable) — no audio yet; still polling")
+            }
+        }
+        return
     }
 
     private func readBuiltin() -> Int {
@@ -381,6 +522,9 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
         }
     }
 
+    /// Terminal resolution. The release edge may arrive before any source was chosen — for example
+    /// a very short press on a cold remote. This never locks a no-built-in-mic Mac to the built-in
+    /// ring; such an attempt ends as `remote_start_timeout` (producer never started) or `no_frames`.
     @discardableResult
     private func stopOnQueue() -> VoiceCapturedAudio {
         if !stopped {
@@ -389,22 +533,56 @@ final class VoiceAudioCaptureSession: @unchecked Sendable {
             timer = nil
             if source == nil {
                 let remoteHasUsableAudio = remoteWasLive && remoteAdvancedFrames >= 480
+                // Parity with the original stop path: a built-in *probe* only overrides a
+                // usable remote when the caller explicitly wants the utterance beginning preserved
+                // and the machine really has a built-in microphone that supplied samples.
                 let preferBuiltIn = preserveBeginningWhenRemoteCold
                     && VoiceRemoteProbePolicy.shouldPreferBuiltInForColdRemote(
                         remoteWasActiveAtStart: remoteWasActiveAtStart,
+                        builtInAvailable: builtInAvailable,
                         builtInFrameCount: builtinProbe.count
                     )
-                select(remoteHasUsableAudio && !preferBuiltIn ? .remote : .builtIn)
+                if remoteHasUsableAudio && !preferBuiltIn {
+                    select(.remote)
+                } else if builtInAvailable {
+                    // A real built-in microphone exists; a committed built-in probe is a valid end
+                    // state even if it captured nothing (native Voice behavior).
+                    select(.builtIn)
+                } else {
+                    // No usable source at all. Keep the failure explicit instead of silently
+                    // reporting an empty built-in capture as if it had succeeded.
+                    pendingOutcome = remoteWasActiveAtStart ? .noFrames : .remoteStartTimeout
+                    rmDebug("🎙 stop with no usable source builtInAvailable=false "
+                            + "remoteWasActiveAtStart=\(remoteWasActiveAtStart) "
+                            + "→ \(pendingOutcome?.rawValue ?? "no_frames")")
+                }
             }
             continuation.finish()
         }
         let selected = source ?? .builtIn
+        let outcome: VoiceCapturedAudio.Outcome
+        if capturedFrames > 0 {
+            outcome = selected == .remote ? .remoteCaptured : .builtInCaptured
+        } else {
+            outcome = pendingOutcome ?? .noFrames
+        }
+        if outcome == .remoteCaptured {
+            let latencyText = remoteFirstFrameLatencyMilliseconds
+                .map { String(format: "%.1fms", $0) } ?? "n/a"
+            rmDebug("🎙 capture outcome=\(outcome.rawValue) source=\(selected.rawValue) "
+                    + "frames=\(capturedFrames) remoteFirstFrameLatency=\(latencyText)")
+        } else {
+            rmDebug("🎙 capture outcome=\(outcome.rawValue) source=\(selected.rawValue) "
+                    + "frames=\(capturedFrames) builtInAvailable=\(builtInAvailable)")
+        }
         return VoiceCapturedAudio(
             pcm16: capturedPCM,
             sampleRate: Self.outputSampleRate,
             source: selected,
             frameCount: capturedFrames,
-            meanSquare: capturedFrames > 0 ? sumSquares / Double(capturedFrames) : 0
+            meanSquare: capturedFrames > 0 ? sumSquares / Double(capturedFrames) : 0,
+            outcome: outcome,
+            remoteFirstFrameLatencyMilliseconds: remoteFirstFrameLatencyMilliseconds
         )
     }
 }

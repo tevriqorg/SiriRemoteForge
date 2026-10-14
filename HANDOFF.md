@@ -168,6 +168,42 @@ Canonical schema and invariants live in `docs/voice-corpus.md`.
 
 The feature remains opt-in through `settings.corpusCaptureEnabled` / Settings → Voice. Raw capture follows the physical press/release boundary. Missing text is an observation state, not failure; missing labels are preferred to wrong audio/text pairing. Focus/Secure Input interruption and next-attempt attribution guards must remain conservative. Nightly ASR/VAD/alignment belongs to a later Analysis layer and must not rewrite Raw files.
 
+## Voice capture audio-source state machine (2026-10-11)
+
+The press-and-hold "no speech" failures came from the audio-source state machine mislabeling a
+cold/un-started Siri Remote as a successful zero-frame `builtIn` capture. On a Mac with no built-in
+microphone (Mac mini), the 650 ms probe locked each attempt to a silent `builtIn` source.
+
+Fix (App side): the probe no longer falls back to `builtIn` when no built-in mic exists; it keeps
+the remote pending and starts capture at the first remote frame, with an explicit ~3 s
+`remote_start_timeout` recorded via `audio_capture_outcome` (`remote_captured` / `builtin_captured` /
+`remote_start_timeout` / `no_frames`). Diagnostics now log producer-ready state at press,
+first-frame latency and the final source. `BuiltinMicFeeder`/external-mic capability is retained.
+
+Cold-start hardening (daemon side, `mic/captured/srm_captured.c`): PacketLogger's cold exec caused
+7–12 s startup gaps after long idle. The stop-debounce rose to 10 s, PacketLogger is re-primed on a
+60 s idle keep-warm (and 3 s after teardown) on a background serial queue with 1 s timer leeway, and
+`pipeline up` now records `ready_ms`. A queued keep-warm is drained before a real pipeline start so
+two PacketLogger HCI sessions never overlap. **Installed 2026-10-11** via `install.sh`; live daemon
+logs `ready_ms` (warm starts ~148–320 ms) and fires the keep-warm on cadence. A first install left a
+30 s timer leeway that could defer the post-teardown re-prime by up to 30 s (observed two ~6–10 s
+cold starts); reduced to 1 s leeway + 3 s post-stop delay, after which no cold start recurred.
+**Second install 2026-10-14** rebuilds the daemon with two robustness fixes (found in a 10-14 failure
+triage): (1) the teardown now sends SIGTERM first so the router's signal handler clears the ring's
+`producerActive`, then SIGKILL as a backstop plus a daemon-side `clear_remote_ring_active()`
+shm/mmaps the ring and atomically stores `producerActive=0` — removing a stale `producerActive==1`
+left by a SIGKILLed router. (2) The pre-warm now forks via `spawn_child_noblock()` (fork+execv with a
+CLOEXEC status pipe) instead of `posix_spawn`, which blocked until the cold exec finished; the warm-up
+can now observe `g_prewarm_cancel` within ~50 ms, so `start_pipeline`'s `dispatch_sync` drain returns
+in a few hundred ms instead of stalling the main queue past the app's 3 s window. Liveness checks use
+`waitpid`-based `child_gone()` (never `kill(pid,0)`, which can hit a recycled pid); `g_pipeline_up` is
+now `_Atomic`. Installed 2026-10-14 11:53; live daemon logs `pipeline up ... ready_ms=242` on the first
+warm demand. Note: `/var/log/srm_captured.log` had gone missing while the old daemon ran (fd pointed at
+a deleted inode after log cleanup); the reload recreates it and restores daemon-side observability.
+Memory note: the daemon itself is ~1.3 MB resident and flat — the recurring cold-start latency is
+driven by system-wide memory pressure (swap near full, PacketLogger's pages evicted), not by daemon
+memory use, so daemon self-restart/self-cleanup would not help.
+
 ## Current build and signing identity
 
 Development packaging uses:

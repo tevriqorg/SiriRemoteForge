@@ -41,12 +41,15 @@ Directory permissions are 0700. Sample files are 0600.
 
 ### audio.wav
 
-Mono PCM16 produced by the existing `VoiceAudioCaptureSession`. When the Siri Remote producer is
-already active at the physical press edge, Corpus may select the remote ring. If it starts cold,
-Corpus prefers the built-in probe only when that probe actually contains samples, preserving the
-utterance beginning. If the built-in ring is still empty, capture keeps probing for fresh remote
-frames instead of locking the attempt to silence. The chosen source is recorded in `capture.json`.
-Native Voice keeps its separate remote-first policy.
+Mono PCM16 produced by the existing `VoiceAudioCaptureSession`. The source state machine keeps
+three facts separate: whether the remote producer is **ready** (live and delivering frames),
+whether it is **pending** (cold start in progress), and whether the machine has a usable
+**built-in microphone**. Corpus preserves the utterance beginning from a real built-in probe when
+one exists. On a Mac with no built-in microphone (e.g. Mac mini), a pending remote is never locked
+to the built-in ring: capture holds remote-pending, locks to `remote` on its first frame, and only
+gives up at an explicit 3 s `remote_start_timeout`. Native Voice keeps its separate remote-first
+policy but also only falls back to the built-in mic when one actually exists. The chosen source and
+the attempt outcome are recorded in `capture.json`.
 
 Corpus does **not** retain the full utterance PCM in memory. Capture/state ownership is established
 on the physical press edge, while sample-directory creation and the initial Accessibility probe are
@@ -62,9 +65,12 @@ behavior and is unaffected.
 - `audio_stored_frame_count`: frames written to the WAV spool;
 - `audio_storage_status`: `complete` only when the writer had no error and the two frame counts
   match, otherwise `incomplete`;
-- `audio_capture_status`: `captured` when at least one frame was produced, otherwise `no_frames`.
-  This distinguishes a correctly stored empty WAV from an attempt that actually captured audio.
-
+- `audio_capture_status`: `captured` when the attempt produced audio, otherwise `no_frames`.
+- `audio_capture_outcome`: the explicit result. `remote_captured` and `builtin_captured` are real
+  successes; `remote_start_timeout` means the remote producer never started in time and no built-in
+  fallback existed; `no_frames` is a committed source that produced nothing. This replaces the old
+  ambiguous "builtIn / 0 frames" record that looked like a success on a no-built-in-mic machine.
+- `remote_first_frame_latency_ms`: press-to-first-remote-frame latency for this attempt, when known.
 A forced kill or power loss can still leave the current WAV header unfinished; crash-level audio
 journaling is outside the current in-process durability guarantee.
 
