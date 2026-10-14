@@ -11,9 +11,9 @@
 //  The router historically publishes producerActive once, then leaves it set until it exits. That
 //  was correct when the router itself was demand-scoped, but a persistent router needs session-level
 //  activity. A small watchdog therefore derives producerActive from actual ring writeIndex progress:
-//  fresh remote frames -> active=1; no new frames for a short interval -> active=0. This keeps the
-//  existing App/HAL contracts intact without making either client aware that the capture processes
-//  are now long-lived.
+//  three fresh 20 ms frames -> active=1; no new frames for a short interval -> active=0. This keeps
+//  the router's original jitter prebuffer and the existing App/HAL contracts intact without making
+//  either client aware that the capture processes are now long-lived.
 //
 //  Darwin notifications are deliberately retained only as recovery hints. They no longer launch or
 //  stop the normal pipeline, so a user press never waits for PacketLogger. If the pipeline crashed,
@@ -52,6 +52,7 @@ extern char **environ;
 #define MISSING_RETRY_SECONDS   30
 #define RING_WATCH_INTERVAL_MS  20
 #define RING_IDLE_AFTER_MS      200
+#define RING_PREBUFFER_FRAMES   2880u  // 3 * 20 ms @ 48 kHz, matching srm_router
 
 static pid_t g_packetlogger = -1;
 static pid_t g_router = -1;
@@ -67,6 +68,7 @@ static dispatch_source_t g_int_source = NULL;
 static int g_ring_fd = -1;
 static SRMSharedMemory *g_ring = NULL;
 static uint64_t g_last_write_index = 0;
+static uint64_t g_session_base_index = 0;
 static uint64_t g_last_advance_ns = 0;
 
 static void logmsg(const char *fmt, ...)
@@ -150,6 +152,7 @@ static void unmap_remote_ring(void)
         g_ring_fd = -1;
     }
     g_last_write_index = 0;
+    g_session_base_index = 0;
     g_last_advance_ns = 0;
 }
 
@@ -182,6 +185,7 @@ static int map_remote_ring(void)
     g_ring_fd = fd;
     g_ring = ring;
     g_last_write_index = atomic_load_explicit(&ring->writeIndex, memory_order_acquire);
+    g_session_base_index = g_last_write_index;
     g_last_advance_ns = 0;
     atomic_store_explicit(&ring->producerActive, 0, memory_order_release);
     return 1;
@@ -201,9 +205,21 @@ static void ring_watch_tick(void)
     const uint64_t current = atomic_load_explicit(&g_ring->writeIndex, memory_order_acquire);
 
     if (current != g_last_write_index) {
+        // A fresh burst after an idle interval defines a new utterance epoch. Capture the index just
+        // before its first observed write so producerActive is not published until the same 60 ms
+        // prebuffer the router historically required has accumulated.
+        if (g_last_advance_ns == 0 || current < g_last_write_index) {
+            g_session_base_index = current < g_last_write_index ? current : g_last_write_index;
+        }
         g_last_write_index = current;
         g_last_advance_ns = now;
-        atomic_store_explicit(&g_ring->producerActive, 1, memory_order_release);
+
+        const uint64_t buffered = current >= g_session_base_index
+            ? current - g_session_base_index
+            : 0;
+        atomic_store_explicit(&g_ring->producerActive,
+                              buffered >= RING_PREBUFFER_FRAMES,
+                              memory_order_release);
         return;
     }
 
@@ -211,7 +227,8 @@ static void ring_watch_tick(void)
         const uint64_t idle_ns = (uint64_t)RING_IDLE_AFTER_MS * 1000000ull;
         if (now - g_last_advance_ns >= idle_ns) {
             atomic_store_explicit(&g_ring->producerActive, 0, memory_order_release);
-            g_last_advance_ns = 0;  // avoid writing the same state on every watchdog tick
+            g_last_advance_ns = 0;
+            g_session_base_index = current;
         }
     }
 }
@@ -380,7 +397,7 @@ static void schedule_restart(unsigned seconds)
 
     dispatch_source_set_timer(g_restart_timer,
         dispatch_time(DISPATCH_TIME_NOW, (int64_t)seconds * NSEC_PER_SEC),
-        DISPATCH_TIME_FOREVER, (uint64_t)(0.25 * NSEC_PER_SEC));
+        DISPATCH_TIME_FOREVER, (uint64_t)(250 * 1000000ull));
     dispatch_source_set_event_handler(g_restart_timer, ^{
         cancel_restart_timer();
         if (!start_pipeline()) {
@@ -406,9 +423,9 @@ static void install_ring_watchdog(void)
     if (g_ring_timer == NULL) return;
 
     dispatch_source_set_timer(g_ring_timer,
-        dispatch_time(DISPATCH_TIME_NOW, (int64_t)RING_WATCH_INTERVAL_MS * NSEC_PER_MSEC),
-        (uint64_t)RING_WATCH_INTERVAL_MS * NSEC_PER_MSEC,
-        (uint64_t)5 * NSEC_PER_MSEC);
+        dispatch_time(DISPATCH_TIME_NOW, (int64_t)RING_WATCH_INTERVAL_MS * 1000000ll),
+        (uint64_t)RING_WATCH_INTERVAL_MS * 1000000ull,
+        (uint64_t)5 * 1000000ull);
     dispatch_source_set_event_handler(g_ring_timer, ^{
         ring_watch_tick();
     });
@@ -472,10 +489,10 @@ int main(void)
 
     // Reap child exits and recover the whole stream as one unit. The ring is explicitly marked
     // inactive during recovery so clients never mistake a frozen producer for live audio.
+    signal(SIGCHLD, SIG_DFL);
     dispatch_source_t sigchld = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGCHLD, 0,
                                                        dispatch_get_main_queue());
     if (sigchld != NULL) {
-        signal(SIGCHLD, SIG_DFL);
         dispatch_source_set_event_handler(sigchld, ^{
             int status = 0;
             pid_t dead = -1;
