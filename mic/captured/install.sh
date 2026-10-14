@@ -1,10 +1,12 @@
 #!/bin/bash
 #
-# install.sh — install the "Siri Remote Mic" capture daemon as a system LaunchDaemon.
+# install.sh — install the "Siri Remote Mic" capture supervisor as a system LaunchDaemon.
 #
-# This is the one privileged step of the whole feature: it grants the daemon standing root so the
-# capture pipeline (PacketLogger + router) can run on demand without a per-use password. The daemon
-# itself does nothing until an app actually opens the virtual mic device.
+# This is the one privileged step of the whole feature: it grants the supervisor standing root so
+# PacketLogger can keep one Bluetooth HCI stream open without a per-use password. The installed
+# supervisor starts PacketLogger + srm_router at daemon load and keeps that stream warm; user Voice
+# presses no longer launch privileged capture processes. Actual remote-mic activity is still derived
+# from fresh shared-ring frames, so an idle remote does not present as an active audio producer.
 #
 # Idempotent: safe to re-run to update the binaries. Needs sudo (installs to system locations).
 #
